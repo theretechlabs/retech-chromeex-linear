@@ -73,6 +73,21 @@ Ao salvar o webhook no popup, o Chrome pede permissão para o host do n8n — ac
 
 > Limitação natural: o lembrete depende do Chrome aberto. Como o timer só roda com o dev trabalhando no navegador, na prática cobre o caso real.
 
+## Atualizar o time sem a loja (GitHub Releases)
+
+Push de tag `v*` dispara o GitHub Actions, que builda e anexa `retech-linear-timer.zip` numa Release:
+
+```bash
+git tag v0.1.1 && git push origin v0.1.1
+```
+
+Cada dev (sem precisar de Node/git):
+
+1. Baixar o zip da [última release](https://github.com/theretechlabs/retech-chromeex-linear/releases/latest)
+2. Extrair **sempre na mesma pasta** (ex.: `~/linear-timer/`)
+3. Primeira vez: `chrome://extensions` → Developer mode → Load unpacked → essa pasta
+4. Atualizações: extrair o zip novo por cima da mesma pasta → botão ↻ da extensão
+
 ## Publicar na Chrome Web Store
 
 1. Criar conta em [Chrome Web Store Developer Dashboard](https://chrome.google.com/webstore/devconsole) — taxa única de US$ 5.
