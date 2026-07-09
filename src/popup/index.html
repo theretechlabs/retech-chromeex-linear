@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Retech Linear Timer</title>
+    <link rel="stylesheet" href="./popup.css" />
+  </head>
+  <body>
+    <h1>⏱️ Retech Linear Timer</h1>
+
+    <section id="timer-card" class="timer-card hidden">
+      <div>
+        <div id="timer-issue" class="timer-issue"></div>
+        <div id="timer-clock" class="timer-clock"></div>
+      </div>
+      <button id="stop-btn" class="danger">Pausar</button>
+    </section>
+    <p id="no-timer" class="muted">Nenhum timer ativo.</p>
+
+    <form id="settings-form">
+      <label>
+        Linear API Key
+        <input type="password" id="apiKey" placeholder="lin_api_..." autocomplete="off" />
+        <small>Linear → Settings → Security &amp; access → Personal API keys</small>
+      </label>
+
+      <label>
+        Webhook n8n (lembrete de pausa)
+        <input type="url" id="webhookUrl" placeholder="https://n8n.suaempresa.com/webhook/linear-timer" />
+      </label>
+
+      <label>
+        WhatsApp (enviado ao n8n)
+        <input type="text" id="phone" placeholder="5548999999999" />
+      </label>
+
+      <label>
+        Lembrar a cada (minutos)
+        <input type="number" id="reminderMinutes" min="5" step="5" value="60" />
+      </label>
+
+      <button type="submit" id="save-btn">Salvar</button>
+      <p id="feedback" class="muted"></p>
+    </form>
+
+    <script type="module" src="./popup.ts"></script>
+  </body>
+</html>
