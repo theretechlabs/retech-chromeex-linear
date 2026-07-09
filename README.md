@@ -50,9 +50,12 @@ Com timer ativo, a extensão faz POST no webhook configurado, a cada intervalo:
   "title": "Definição sobre implementação das telas...",
   "startedAt": "2026-07-09T12:00:00.000Z",
   "elapsedMinutes": 60,
-  "elapsedHuman": "1h 00m"
+  "elapsedHuman": "1h 00m",
+  "message": "⏱️ Timer ativo há 1h 00m na THE-558 — Definição sobre...\n\nQue tal uma pausa de 5 min? ☕"
 }
 ```
+
+`message` já vem pronto, com quebras de linha reais — o n8n só repassa.
 
 Workflow no n8n:
 
@@ -60,14 +63,10 @@ Workflow no n8n:
 2. **HTTP Request node** → Evolution API:
    - URL: `{EVOLUTION_URL}/message/sendText/{INSTANCIA}`
    - Header: `apikey: {SUA_KEY}`
-   - Body (Evolution v2):
-     ```json
-     {
-       "number": "{{ $json.body.phone }}",
-       "text": "⏱️ Timer ativo há {{ $json.body.elapsedHuman }} na {{ $json.body.issue }}. Que tal uma pausa de 5 min?"
-     }
-     ```
-     (Evolution v1 usa `"textMessage": { "text": "..." }` no lugar de `"text"`.)
+   - Body: **Using Fields Below** (não "Using JSON" — `\n` em JSON manual vai literal):
+     - `number` = `{{ $json.body.phone }}`
+     - `text` = `{{ $json.body.message }}`
+     (Evolution v1 usa `textMessage.text` no lugar de `text`.)
 
 Ao salvar o webhook no popup, o Chrome pede permissão para o host do n8n — aceitar.
 
