@@ -43,8 +43,11 @@ function ensureUi(): Ui {
       color: #e8e9ed;
       font: 500 13px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       user-select: none;
+      cursor: grab;
+      touch-action: none;
     }
     .card.visible { display: flex; }
+    .card.dragging { cursor: grabbing; }
     .issue { color: #9fa2ab; font-weight: 600; }
     .clock {
       font-variant-numeric: tabular-nums;
@@ -75,6 +78,7 @@ function ensureUi(): Ui {
       position: fixed;
       right: 18px;
       bottom: 78px;
+      transform: none;
       z-index: 2147483647;
       display: none;
       max-width: 320px;
@@ -104,12 +108,66 @@ function ensureUi(): Ui {
   const status = document.createElement('div')
   status.className = 'status'
 
+  // Arrastar pelo corpo do card (botão continua clicável).
+  let dragOffset: { dx: number; dy: number } | null = null
+  card.addEventListener('pointerdown', (e: PointerEvent) => {
+    if (e.target instanceof Node && button.contains(e.target)) return
+    const rect = card.getBoundingClientRect()
+    dragOffset = { dx: e.clientX - rect.left, dy: e.clientY - rect.top }
+    card.setPointerCapture(e.pointerId)
+    card.classList.add('dragging')
+  })
+  card.addEventListener('pointermove', (e: PointerEvent) => {
+    if (!dragOffset) return
+    widgetPos = { x: e.clientX - dragOffset.dx, y: e.clientY - dragOffset.dy }
+    applyWidgetPos()
+  })
+  card.addEventListener('pointerup', (e: PointerEvent) => {
+    if (!dragOffset) return
+    dragOffset = null
+    card.classList.remove('dragging')
+    card.releasePointerCapture(e.pointerId)
+    void chrome.storage.local.set({ widgetPos })
+  })
+
   card.append(issue, clock, button)
   shadow.append(style, card, status)
   document.documentElement.append(host)
 
   ui = { host, card, issue, clock, button, status }
   return ui
+}
+
+let widgetPos: { x: number; y: number } | null = null
+
+/** Aplica posição salva (clampada na viewport); sem posição, fica no padrão bottom-right. */
+function applyWidgetPos(): void {
+  if (!ui || !widgetPos) return
+  const { card, status } = ui
+  const rect = card.getBoundingClientRect()
+  const width = rect.width || 200
+  const height = rect.height || 56
+  const x = Math.min(Math.max(widgetPos.x, 0), Math.max(0, window.innerWidth - width))
+  const y = Math.min(Math.max(widgetPos.y, 0), Math.max(0, window.innerHeight - height))
+  card.style.left = `${x}px`
+  card.style.top = `${y}px`
+  card.style.right = 'auto'
+  card.style.bottom = 'auto'
+  // Balão de status acompanha o card, logo acima dele.
+  status.style.left = `${x}px`
+  status.style.top = `${y - 8}px`
+  status.style.transform = 'translateY(-100%)'
+  status.style.right = 'auto'
+  status.style.bottom = 'auto'
+}
+
+async function loadWidgetPos(): Promise<void> {
+  const { widgetPos: saved } = await chrome.storage.local.get('widgetPos')
+  if (saved) {
+    widgetPos = saved as { x: number; y: number }
+    ensureUi()
+    applyWidgetPos()
+  }
 }
 
 async function send<T = Record<string, unknown>>(msg: unknown): Promise<T> {
@@ -206,5 +264,7 @@ async function onToggle(): Promise<void> {
 setInterval(syncPage, 800)
 setInterval(() => void pollState(), 5000)
 setInterval(render, 1000) // cronômetro ao vivo
+window.addEventListener('resize', applyWidgetPos)
 syncPage()
 void pollState()
+void loadWidgetPos()
