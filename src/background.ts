@@ -131,7 +131,7 @@ async function sendReminder(): Promise<void> {
   if (!settings.webhookUrl) return
   const message =
     `⏱️ Timer ativo há ${elapsed} na ${timer.identifier} — ${timer.title}.\n\n` +
-    'Que tal uma pausa de 5 min? ☕'
+    'Que tal uma pausa de 5 min? 🚻☕'
   try {
     await fetch(settings.webhookUrl, {
       method: 'POST',
