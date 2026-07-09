@@ -2,21 +2,26 @@
  * Formato do comentário consumido pela extração de dados existente.
  * NÃO alterar sem atualizar o parser do outro lado:
  *
- *   init_task: 2026-07-09 09:00:00.000000 +00:00
- *   -end_task: 2026-07-09 12:00:00.000000 +00:00-
+ *   init_task: 2026-07-09 09:00:00.000000 -03:00
+ *   -end_task: 2026-07-09 12:00:00.000000 -03:00-
  */
 
 function pad(n: number, len = 2): string {
   return String(n).padStart(len, '0')
 }
 
-/** Timestamp UTC no padrão `YYYY-MM-DD HH:MM:SS.ffffff +00:00`. */
+/** Timestamp na hora local do dev, padrão `YYYY-MM-DD HH:MM:SS.ffffff ±HH:MM`. */
 export function formatLinearTimestamp(date: Date): string {
-  const micros = pad(date.getUTCMilliseconds(), 3) + '000'
+  const micros = pad(date.getMilliseconds(), 3) + '000'
+  // getTimezoneOffset: minutos para chegar em UTC (BRT = 180 → offset -03:00).
+  const offsetMin = -date.getTimezoneOffset()
+  const sign = offsetMin < 0 ? '-' : '+'
+  const abs = Math.abs(offsetMin)
+  const offset = `${sign}${pad(Math.floor(abs / 60))}:${pad(abs % 60)}`
   return (
-    `${date.getUTCFullYear()}-${pad(date.getUTCMonth() + 1)}-${pad(date.getUTCDate())} ` +
-    `${pad(date.getUTCHours())}:${pad(date.getUTCMinutes())}:${pad(date.getUTCSeconds())}` +
-    `.${micros} +00:00`
+    `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ` +
+    `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}` +
+    `.${micros} ${offset}`
   )
 }
 
