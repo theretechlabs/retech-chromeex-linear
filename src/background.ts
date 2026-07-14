@@ -2,8 +2,10 @@ import { buildComment, formatElapsed } from './lib/format'
 import { createComment, resolveIssue } from './lib/linear'
 import {
   clearTimer,
+  getAgentNativeStatus,
   getSettings,
   getTimer,
+  setAgentNativeStatus,
   setTimer,
   timerElapsedMs,
   type PauseReason,
@@ -24,6 +26,8 @@ type Message =
   | { type: 'ENROLL_FACE'; image: string }
   | { type: 'UNENROLL_FACE' }
   | { type: 'GET_ENROLLMENT' }
+  | { type: 'GET_AGENT_STATUS' }
+  | { type: 'TEST_AGENT' }
 
 chrome.runtime.onMessage.addListener((msg: Message, _sender, sendResponse) => {
   handle(msg)
@@ -50,6 +54,35 @@ async function handle(msg: Message): Promise<unknown> {
       return agentRequest({ type: 'unenroll' })
     case 'GET_ENROLLMENT':
       return agentRequest({ type: 'get_enrollment' })
+    case 'GET_AGENT_STATUS':
+      return getAgentStatus()
+    case 'TEST_AGENT':
+      return testAgent()
+  }
+}
+
+/** Estado atual da conexão para o popup — NÃO inicia o agente. */
+async function getAgentStatus() {
+  const native = await getAgentNativeStatus()
+  return {
+    transport: agentPort ? 'native' : agentSocket ? 'ws' : null,
+    connected: agentPort !== null || agentSocket?.readyState === WebSocket.OPEN,
+    ready: agentReady,
+    nativeStatus: native
+  }
+}
+
+/** Força uma conexão + comando (acende a câmera por ~1 min sem timer). */
+async function testAgent() {
+  const result = await agentRequest(
+    { type: 'get_enrollment' },
+    { timeoutMs: 20_000, waitReadyMs: 15_000 }
+  )
+  return {
+    ok: true,
+    transport: agentPort ? 'native' : 'ws',
+    enrolled: result.enrolled === true,
+    available: result.available === true
   }
 }
 
@@ -183,6 +216,9 @@ let agentRecognized: boolean | null = null
 let agentLive: boolean | null = null
 /** Rostos no último payload do agente (distingue "ausente" de "não reconhecido"). */
 let lastAgentFaces = 0
+/** Porta de native messaging (Chrome gerencia o processo do agente). */
+let agentPort: chrome.runtime.Port | null = null
+/** WebSocket legado (agente rodado à mão). */
 let agentSocket: WebSocket | null = null
 
 let evaluating = false
@@ -283,89 +319,28 @@ function applyIdleInterval(settings: Settings): void {
 // Settings salvos no popup mudam o intervalo de idle e o estado do agente.
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== 'local' || !changes.settings) return
-  void getSettings().then((settings) => {
+  void getSettings().then(async (settings) => {
     applyIdleInterval(settings)
-    if (settings.agentEnabled) ensureAgentConnection(settings)
-    else closeAgentConnection()
+    // Só conecta se há timer ativo: no modo nativo, conectar SPAWNA o agente
+    // e acende a câmera — salvar settings não pode ligar a câmera à toa.
+    if (!settings.agentEnabled) closeAgentConnection()
+    else if (await getTimer()) ensureAgentConnection(settings)
     void evaluatePresence()
   })
 })
 
 // ---------------------------------------------------------------------------
-// Agente de câmera: WebSocket local (retech-presence-agent).
-// O agente envia {type:'presence', present:boolean} em toda mudança + heartbeat
-// a cada ~20s, o que também mantém o service worker vivo enquanto conectado.
+// Agente de câmera (retech-presence-agent) — dois transportes:
+// - Native messaging (preferido): o Chrome INICIA o agente ao conectar e o
+//   encerra no disconnect → câmera ligada só com timer ativo. A porta aberta
+//   mantém o service worker MV3 vivo (Chrome 116+).
+// - WebSocket (legado/debug): agente rodado à mão no terminal.
+// Protocolo idêntico nos dois; a porta nativa entrega objetos já parseados.
 // ---------------------------------------------------------------------------
 
-function ensureAgentConnection(settings: Settings): void {
-  if (!settings.agentEnabled) return
-  if (
-    agentSocket &&
-    (agentSocket.readyState === WebSocket.OPEN ||
-      agentSocket.readyState === WebSocket.CONNECTING)
-  ) {
-    return
-  }
-  try {
-    const ws = new WebSocket(`ws://127.0.0.1:${settings.agentPort}`)
-    agentSocket = ws
-    ws.onmessage = (event) => {
-      try {
-        const msg = JSON.parse(String(event.data)) as AgentMessage
-        if (msg.type === 'presence' && typeof msg.present === 'boolean') {
-          const faces = typeof msg.faces === 'number' ? msg.faces : 0
-          const changed =
-            facePresent !== msg.present ||
-            agentRecognized !== (msg.recognized ?? null) ||
-            agentLive !== (msg.live ?? null) ||
-            (lastAgentFaces > 0) !== (faces > 0)
-          facePresent = msg.present
-          agentRecognized = msg.recognized ?? null
-          agentLive = typeof msg.live === 'boolean' ? msg.live : null
-          lastAgentFaces = faces
-          if (changed) void evaluatePresence()
-        } else if (typeof msg.id === 'string') {
-          // Resposta de enroll/unenroll/get_enrollment.
-          const resolve = pendingAgentRequests.get(msg.id)
-          if (resolve) {
-            pendingAgentRequests.delete(msg.id)
-            resolve(msg)
-          }
-        }
-      } catch {
-        // Mensagem inválida do agente é ignorada.
-      }
-    }
-    ws.onclose = () => {
-      if (agentSocket === ws) {
-        agentSocket = null
-        // Agente fora do ar não pode manter o timer pausado por 'no-face'.
-        facePresent = null
-        agentRecognized = null
-        agentLive = null
-        lastAgentFaces = 0
-        void evaluatePresence()
-      }
-    }
-    ws.onerror = () => ws.close()
-  } catch {
-    agentSocket = null
-  }
-}
-
-function closeAgentConnection(): void {
-  const ws = agentSocket
-  agentSocket = null
-  facePresent = null
-  agentRecognized = null
-  agentLive = null
-  lastAgentFaces = 0
-  ws?.close()
-}
-
-// ---------------------------------------------------------------------------
-// RPC com o agente: enroll/unenroll/get_enrollment sobre o mesmo WebSocket.
-// ---------------------------------------------------------------------------
+const NATIVE_HOST = 'com.retech.presence_agent'
+const AGENT_IDLE_ALARM = 'agent-idle-disconnect'
+const NOT_INSTALLED_RE = /not found|forbidden|invalid native messaging host/i
 
 interface AgentMessage {
   type?: string
@@ -380,58 +355,256 @@ interface AgentMessage {
   available?: boolean
 }
 
-const pendingAgentRequests = new Map<string, (msg: AgentMessage) => void>()
+interface PendingRequest {
+  resolve: (msg: AgentMessage) => void
+  reject: (e: Error) => void
+}
 
-async function agentRequest(payload: Record<string, unknown>): Promise<AgentMessage> {
+const pendingAgentRequests = new Map<string, PendingRequest>()
+
+/** true após 'ready'/primeira mensagem — cold start do processo nativo. */
+let agentReady = false
+let agentReadyWaiters: Array<(ok: boolean) => void> = []
+
+function markAgentReady(): void {
+  if (agentReady) return
+  agentReady = true
+  for (const waiter of agentReadyWaiters) waiter(true)
+  agentReadyWaiters = []
+}
+
+function waitAgentReady(timeoutMs: number): Promise<void> {
+  if (agentReady) return Promise.resolve()
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error('Agente não iniciou a tempo — confira a instalação no popup')),
+      timeoutMs
+    )
+    agentReadyWaiters.push((ok) => {
+      clearTimeout(timer)
+      if (ok) resolve()
+      else reject(new Error('Agente desconectou durante a inicialização'))
+    })
+  })
+}
+
+function handleAgentMessage(msg: AgentMessage): void {
+  markAgentReady()
+  if (msg.type === 'presence' && typeof msg.present === 'boolean') {
+    const faces = typeof msg.faces === 'number' ? msg.faces : 0
+    const changed =
+      facePresent !== msg.present ||
+      agentRecognized !== (msg.recognized ?? null) ||
+      agentLive !== (msg.live ?? null) ||
+      (lastAgentFaces > 0) !== (faces > 0)
+    facePresent = msg.present
+    agentRecognized = msg.recognized ?? null
+    agentLive = typeof msg.live === 'boolean' ? msg.live : null
+    lastAgentFaces = faces
+    if (changed) void evaluatePresence()
+  } else if (typeof msg.id === 'string') {
+    // Resposta de enroll/unenroll/get_enrollment/verify.
+    const pending = pendingAgentRequests.get(msg.id)
+    if (pending) {
+      pendingAgentRequests.delete(msg.id)
+      pending.resolve(msg)
+    }
+  }
+}
+
+function handleAgentDisconnect(reason: string): void {
+  // Agente fora do ar não pode manter o timer pausado por 'no-face'.
+  facePresent = null
+  agentRecognized = null
+  agentLive = null
+  lastAgentFaces = 0
+  agentReady = false
+  for (const waiter of agentReadyWaiters) waiter(false)
+  agentReadyWaiters = []
+  const error = new Error(reason)
+  for (const pending of pendingAgentRequests.values()) pending.reject(error)
+  pendingAgentRequests.clear()
+  void evaluatePresence()
+}
+
+function ensureAgentConnection(settings: Settings): void {
+  if (!settings.agentEnabled) return
+  void chrome.alarms.clear(AGENT_IDLE_ALARM)
+  if (agentPort) return
+  if (
+    agentSocket &&
+    (agentSocket.readyState === WebSocket.OPEN ||
+      agentSocket.readyState === WebSocket.CONNECTING)
+  ) {
+    return
+  }
+  if (settings.agentTransport === 'ws') connectWebSocket(settings)
+  else connectNativePort(settings)
+}
+
+function connectNativePort(settings: Settings): void {
+  let sawMessage = false
+  try {
+    const port = chrome.runtime.connectNative(NATIVE_HOST)
+    agentPort = port
+    port.onMessage.addListener((raw) => {
+      if (agentPort !== port) return
+      if (!sawMessage) {
+        sawMessage = true
+        void setAgentNativeStatus('ok')
+      }
+      handleAgentMessage(raw as AgentMessage)
+    })
+    port.onDisconnect.addListener(() => {
+      if (agentPort !== port) return
+      agentPort = null
+      // connectNative nunca falha síncrono: host ausente/quebrado aparece aqui.
+      const lastError = chrome.runtime.lastError?.message
+      handleAgentDisconnect(lastError ?? 'Agente desconectou')
+      if (lastError && !sawMessage) {
+        const status = NOT_INSTALLED_RE.test(lastError) ? 'not_installed' : 'error'
+        void setAgentNativeStatus(status, lastError)
+        // Fallback legado: quem roda o agente à mão continua funcionando.
+        if (settings.agentTransport === 'auto') connectWebSocket(settings)
+      }
+    })
+  } catch {
+    // Permissão nativeMessaging ausente etc.
+    agentPort = null
+    if (settings.agentTransport === 'auto') connectWebSocket(settings)
+  }
+}
+
+function connectWebSocket(settings: Settings): void {
+  try {
+    const ws = new WebSocket(`ws://127.0.0.1:${settings.agentPort}`)
+    agentSocket = ws
+    ws.onmessage = (event) => {
+      try {
+        handleAgentMessage(JSON.parse(String(event.data)) as AgentMessage)
+      } catch {
+        // Mensagem inválida do agente é ignorada.
+      }
+    }
+    ws.onclose = () => {
+      if (agentSocket === ws) {
+        agentSocket = null
+        handleAgentDisconnect('Agente (WebSocket) desconectou')
+      }
+    }
+    ws.onerror = () => ws.close()
+  } catch {
+    agentSocket = null
+  }
+}
+
+function closeAgentConnection(): void {
+  const port = agentPort
+  const ws = agentSocket
+  agentPort = null
+  agentSocket = null
+  // disconnect() fecha o stdin do host → o agente sai e a câmera desliga.
+  port?.disconnect()
+  ws?.close()
+  handleAgentDisconnect('Conexão encerrada')
+}
+
+/** Sem timer ativo, desconecta 1 min após o último uso (enroll/teste do popup)
+ * para não deixar a câmera ligada à toa. */
+function scheduleAgentIdleDisconnect(): void {
+  void getTimer().then((timer) => {
+    if (!timer) chrome.alarms.create(AGENT_IDLE_ALARM, { delayInMinutes: 1 })
+  })
+}
+
+interface AgentRequestOptions {
+  /** Timeout total da resposta (default 10s). */
+  timeoutMs?: number
+  /** Espera o agente ficar pronto antes de enviar (cold start nativo). */
+  waitReadyMs?: number
+}
+
+async function agentRequest(
+  payload: Record<string, unknown>,
+  opts: AgentRequestOptions = {}
+): Promise<AgentMessage> {
   const settings = await getSettings()
   if (!settings.agentEnabled) {
     throw new Error('Ative o agente de câmera nas configurações primeiro')
   }
   ensureAgentConnection(settings)
-  // Espera a conexão abrir (até 3s); agente parado falha rápido com erro claro.
-  const deadline = Date.now() + 3000
-  while (agentSocket?.readyState !== WebSocket.OPEN) {
-    if (!agentSocket || Date.now() > deadline) {
-      throw new Error('Agente offline — inicie o presence agent e tente de novo')
+  if (agentPort) {
+    // postMessage logo após connectNative é seguro (o pipe bufferiza), mas a
+    // primeira resposta útil só vem depois do boot — espere o ready se pedido.
+    if (!agentReady && opts.waitReadyMs) await waitAgentReady(opts.waitReadyMs)
+  } else {
+    // WS: espera a conexão abrir (até 3s); agente parado falha rápido.
+    const deadline = Date.now() + 3000
+    while (agentSocket?.readyState !== WebSocket.OPEN) {
+      if (!agentSocket || Date.now() > deadline) {
+        throw new Error('Agente offline — instale/inicie o presence agent e tente de novo')
+      }
+      await new Promise((r) => setTimeout(r, 100))
     }
-    await new Promise((r) => setTimeout(r, 100))
   }
   const id = crypto.randomUUID()
-  const socket = agentSocket
-  return new Promise<AgentMessage>((resolve, reject) => {
-    const timeout = setTimeout(() => {
-      pendingAgentRequests.delete(id)
-      reject(new Error('Agente não respondeu (timeout)'))
-    }, 10_000)
-    pendingAgentRequests.set(id, (msg) => {
-      clearTimeout(timeout)
-      resolve(msg)
+  try {
+    return await new Promise<AgentMessage>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        pendingAgentRequests.delete(id)
+        reject(new Error('Agente não respondeu (timeout)'))
+      }, opts.timeoutMs ?? 10_000)
+      pendingAgentRequests.set(id, {
+        resolve: (msg) => {
+          clearTimeout(timeout)
+          resolve(msg)
+        },
+        reject: (e) => {
+          clearTimeout(timeout)
+          reject(e)
+        }
+      })
+      try {
+        sendToAgent({ ...payload, id })
+      } catch (e) {
+        clearTimeout(timeout)
+        pendingAgentRequests.delete(id)
+        reject(e instanceof Error ? e : new Error(String(e)))
+      }
     })
-    try {
-      socket.send(JSON.stringify({ ...payload, id }))
-    } catch (e) {
-      clearTimeout(timeout)
-      pendingAgentRequests.delete(id)
-      reject(e instanceof Error ? e : new Error(String(e)))
-    }
-  })
+  } finally {
+    scheduleAgentIdleDisconnect()
+  }
+}
+
+function sendToAgent(obj: Record<string, unknown>): void {
+  if (agentPort) agentPort.postMessage(obj)
+  else if (agentSocket) agentSocket.send(JSON.stringify(obj))
+  else throw new Error('Sem conexão com o agente')
 }
 
 /**
  * Reconhecimento facial no play/resume MANUAL: com agente ativo e rosto
- * cadastrado, o timer só inicia depois de o agente reconhecer o dev (espera
- * até ~6s por um match fresco). Permissivo por decisão: agente desligado,
- * offline ou sem cadastro deixa iniciar — consistente com o auto-pause, que
- * também não trava o timer com o agente fora do ar.
+ * cadastrado, o timer só inicia depois de o agente reconhecer o dev. No modo
+ * nativo o processo nasce agora (cold start ~3-5s) — o budget cobre boot +
+ * espera da câmera (15s) + janela de match (6s). Permissivo por decisão:
+ * agente desligado, não instalado ou sem cadastro deixa iniciar — consistente
+ * com o auto-pause, que também não trava o timer com o agente fora do ar.
  */
 async function verifyIdentity(settings: Settings): Promise<void> {
   if (!settings.agentEnabled) return
   let result: AgentMessage
   try {
-    result = await agentRequest({ type: 'verify' })
+    result = await agentRequest({ type: 'verify' }, { timeoutMs: 25_000, waitReadyMs: 15_000 })
   } catch {
-    // Agente offline não bloqueia o play.
+    // Agente não instalado/offline não bloqueia o play.
     return
+  }
+  if (result.error === 'camera_timeout') {
+    throw new Error(
+      'Câmera não respondeu — veja se outro app está usando. ' +
+        'Na primeira execução o agente baixa modelos; tente de novo em 1 min.'
+    )
   }
   if (result.recognized === false) {
     if (settings.soundEnabled) void playSound('unrecognized')
@@ -510,6 +683,12 @@ chrome.alarms.onAlarm.addListener((alarm) => {
     })
   }
   if (alarm.name === REMINDER_ALARM) void sendReminder()
+  if (alarm.name === AGENT_IDLE_ALARM) {
+    // Uso avulso do agente (enroll/teste) sem timer: solta a câmera.
+    void getTimer().then((timer) => {
+      if (!timer) closeAgentConnection()
+    })
+  }
 })
 
 async function updateBadge(): Promise<void> {
