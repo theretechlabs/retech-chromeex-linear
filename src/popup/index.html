@@ -64,11 +64,42 @@
           <span>Usar agente de câmera (detecção de rosto)</span>
         </label>
 
-        <label>
-          Porta do agente
-          <input type="number" id="agentPort" min="1024" max="65535" value="8998" />
-          <small>retech-presence-agent rodando local; veja agent/README.md.</small>
-        </label>
+        <div id="agent-setup" class="agent-setup">
+          <div class="agent-status-row">
+            <span id="agentStatusDot" class="status-dot unknown"></span>
+            <small id="agentStatusText">Verificando agente…</small>
+          </div>
+          <div id="agent-install" class="agent-install hidden">
+            <small>Instale o agente uma única vez (depois reinicie o Chrome):</small>
+            <div class="cmd-row">
+              <code id="installCmd"></code>
+              <button type="button" id="copy-cmd-btn" title="Copiar comando">⧉</button>
+            </div>
+            <small><a href="#" id="other-os-link">comando para outros sistemas</a></small>
+            <div id="other-os" class="other-os hidden"></div>
+          </div>
+          <div class="agent-actions">
+            <button type="button" id="test-agent-btn">Testar conexão</button>
+            <small>O teste acende a câmera por ~1 min.</small>
+          </div>
+        </div>
+
+        <details class="advanced">
+          <summary>Avançado</summary>
+          <label>
+            Transporte do agente
+            <select id="agentTransport">
+              <option value="auto">Automático (nativo, cai p/ WebSocket)</option>
+              <option value="native">Somente nativo</option>
+              <option value="ws">WebSocket (legado — agente manual)</option>
+            </select>
+          </label>
+          <label>
+            Porta do agente (WebSocket)
+            <input type="number" id="agentPort" min="1024" max="65535" value="8998" />
+            <small>Só usada no modo WebSocket/fallback; veja agent/README.md.</small>
+          </label>
+        </details>
 
         <label class="check">
           <input type="checkbox" id="soundEnabled" checked />
