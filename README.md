@@ -26,6 +26,8 @@ Extensão Chrome que cronometra seu trabalho nas issues do Linear e registra o t
 
 > Para atualizar a extensão depois: baixe o zip novo, extraia por cima da mesma pasta e clique no ↻ da extensão em `chrome://extensions`.
 
+> ⚠️ **Atualizando da v0.2 ou anterior?** Nesta versão o ID interno da extensão mudou — o Chrome trata como extensão nova e **as configurações resetam**. Recoloque a API key e reenvie a foto de referência (uma vez só).
+
 ---
 
 ## ⏯️ O que acontece sozinho
@@ -81,8 +83,10 @@ Privacidade: tudo roda 100% local. Nenhuma imagem sai da máquina nem fica em di
 | Widget mostra "pisque para a câmera 👁" | O agente está esperando sua piscada pra confirmar que é você (e não uma foto). Pisque olhando pra câmera — retoma em ~1–3s. |
 | "Rosto não reconhecido" sendo você | Óculos/iluminação diferente da foto cadastrada. Reenvie uma foto nas condições da sua mesa, ou rode o agente com `--recognition-threshold 0.30` (menos rígido). |
 | Play manual bloqueado com "Rosto não reconhecido" | Olhe pra câmera e clique de novo. A verificação espera até 6s. |
+| Play demora alguns segundos pra iniciar | Normal com reconhecimento ligado: o Chrome **liga o agente na hora do play** (câmera sobe em ~3–5s) e verifica seu rosto antes de contar tempo. |
+| "Câmera não respondeu" ao dar play | Outro app está usando a câmera (Zoom/Meet?) ou é a primeira execução baixando modelos — feche o app/espere 1 min e tente de novo. |
 | Timer pausou e não volta | Veja o motivo no widget. Aba da issue fechada? Reabra. Agente caiu? O pause por câmera deixa de valer sozinho (idle e aba continuam). |
-| Agente não conecta | Porta do popup ≠ porta do agente (padrão 8998). Confira se o agente está rodando no terminal. |
+| Popup mostra "Agente não instalado" | Rode o comando de instalação que o próprio popup mostra (botão copiar), **reinicie o Chrome** e clique em "Testar conexão". |
 | Sem som no pause/play | Toggle "Tocar som" no popup. Som só toca em pause/retomada **automáticos** — ações manuais são mudas. |
 
 ---
@@ -171,7 +175,7 @@ scripts/gen-icons.mjs     # gera PNGs dos ícones sem dependências
 **Release para o time:** push de tag `v*` dispara o GitHub Actions, que builda e anexa o zip numa Release:
 
 ```bash
-git tag v0.2.0 && git push origin v0.2.0
+git tag v0.3.0 && git push origin v0.3.0
 ```
 
 <details>
@@ -188,4 +192,4 @@ git tag v0.2.0 && git push origin v0.2.0
 
 ## Roadmap
 
-- **v0.3**: relatório semanal (script agrega comentários via API), dashboard de horas por dev/projeto, OAuth do Linear no lugar de API key, instalador/empacotamento do agente (PyInstaller) + autostart.
+- **v0.4**: relatório semanal (script agrega comentários via API), dashboard de horas por dev/projeto, OAuth do Linear no lugar de API key, launcher `.exe` no Windows (elimina o flash de console do `.bat`).
