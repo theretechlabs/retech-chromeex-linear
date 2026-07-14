@@ -606,6 +606,12 @@ async function verifyIdentity(settings: Settings): Promise<void> {
         'Na primeira execução o agente baixa modelos; tente de novo em 1 min.'
     )
   }
+  // Reconhecimento disponível mas sem foto cadastrada: bloqueia — senão nunca
+  // cadastrar seria um bypass permanente da verificação de identidade.
+  // (Agente antigo não manda available/enrolled → segue permissivo.)
+  if (result.recognized == null && result.available === true && result.enrolled === false) {
+    throw new Error('Cadastre seu rosto no popup da extensão antes de iniciar o timer')
+  }
   if (result.recognized === false) {
     if (settings.soundEnabled) void playSound('unrecognized')
     throw new Error('Rosto não reconhecido — olhe para a câmera e tente de novo')

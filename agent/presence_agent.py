@@ -597,10 +597,13 @@ async def handle_command(
         }
     if mtype == "verify":
         # Verificação sob demanda (play manual da extensão): espera um match
-        # FRESCO do loop de detecção. Sem cadastro/reconhecimento não há o
-        # que verificar → recognized: null (extensão deixa passar).
+        # FRESCO do loop de detecção. Sem cadastro/reconhecimento não há o que
+        # verificar → recognized: null + flags para a extensão decidir:
+        # available && !enrolled → ela BLOQUEIA o play ("cadastre seu rosto");
+        # reconhecimento indisponível (modelos falharam) → permissivo.
         if recognizer is None or not recognizer.enrolled:
-            return {"type": "verify_result", "id": mid, "ok": True, "recognized": None}
+            return {"type": "verify_result", "id": mid, "ok": True, "recognized": None,
+                    "available": recognizer is not None, "enrolled": False}
         # Cold start (--native): o processo acabou de nascer com o play; a
         # janela de match só começa a contar depois da câmera entregar frame.
         try:
