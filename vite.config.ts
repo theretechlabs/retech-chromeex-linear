@@ -5,6 +5,10 @@ import manifest from './manifest.config'
 export default defineConfig({
   plugins: [crx({ manifest })],
   build: {
-    target: 'es2022'
+    target: 'es2022',
+    rollupOptions: {
+      // O CRXJS não descobre o offscreen document pelo manifest.
+      input: { offscreen: 'src/offscreen/index.html' }
+    }
   }
 })
