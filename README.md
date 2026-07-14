@@ -37,11 +37,14 @@ Depois do seu play, o timer **pausa e retoma sem você fazer nada**:
 | Situação | O que acontece |
 |---|---|
 | Ficou 5 min sem teclado/mouse | ⏸ pausa · volta no primeiro input |
-| Fechou a aba da issue | ⏸ pausa · reabriu → ▶ retoma |
+| Fechou a aba da issue — ou navegou pra **outra tela do Linear** na mesma aba | ⏸ pausa ("aba da issue fechada") · voltou pra issue → ▶ retoma |
 | Saiu da frente da câmera (com agente) | ⏸ pausa · sentou e piscou → ▶ retoma |
 | Outra pessoa sentou no seu lugar | ⏸ continua pausado ("rosto não reconhecido") |
 | Play em outra issue | encerra e registra a anterior automaticamente |
 
+- **Dica:** a regra da aba é rígida — consultar o board ou outra issue (trabalho legítimo) também pausa. Com o **reconhecimento facial ativo, recomendamos desmarcar "Exigir aba da issue"** no popup: a câmera já garante que é você trabalhando, e a aba só precisa existir pra dar o play.
+- Os três sinais respondem perguntas diferentes: **inatividade** = "tem alguém na máquina?" (teclado/mouse do sistema — programar no VSCode conta) · **câmera** = "é você?" · **aba** = "ainda está nessa tarefa?".
+- Foco não importa: Chrome minimizado, você no editor — tudo continua funcionando (a câmera é um processo próprio e a aba só precisa **existir**, não estar focada).
 - O motivo do pause aparece no widget: `inativo`, `ausente`, `aba da issue fechada`, `rosto não reconhecido`, `pisque para a câmera 👁`.
 - **Voz** avisa quando pausa/retoma automaticamente (dá pra desligar no popup).
 - Segmentos menores que 1 minuto não geram comentário (não polui a Activity).
