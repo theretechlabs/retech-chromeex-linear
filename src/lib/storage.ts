@@ -34,7 +34,13 @@ export interface Settings {
   requireIssueTab: boolean
   /** Liga a integração com o agente de câmera (retech-presence-agent). */
   agentEnabled: boolean
-  /** Porta local do WebSocket do agente. */
+  /**
+   * Transporte do agente: 'auto' = native messaging com fallback WebSocket
+   * quando o host não está instalado; 'native' = só nativo (sem fallback);
+   * 'ws' = comportamento legado (agente rodado à mão no terminal).
+   */
+  agentTransport: 'auto' | 'native' | 'ws'
+  /** Porta local do WebSocket do agente (só nos modos com fallback/ws). */
   agentPort: number
   /** Toca voz ao pausar/retomar automaticamente. */
   soundEnabled: boolean
@@ -49,8 +55,35 @@ export const DEFAULT_SETTINGS: Settings = {
   idleMinutes: 5,
   requireIssueTab: true,
   agentEnabled: false,
+  agentTransport: 'auto',
   agentPort: 8998,
   soundEnabled: true
+}
+
+/** Situação do host nativo, escrita pelo background e lida pelo popup. */
+export interface AgentNativeStatus {
+  status: 'unknown' | 'ok' | 'not_installed' | 'error'
+  lastError: string | null
+  lastCheckedAt: number
+}
+
+export async function getAgentNativeStatus(): Promise<AgentNativeStatus> {
+  const { agentNativeStatus } = await chrome.storage.local.get('agentNativeStatus')
+  return (
+    (agentNativeStatus as AgentNativeStatus | undefined) ?? {
+      status: 'unknown',
+      lastError: null,
+      lastCheckedAt: 0
+    }
+  )
+}
+
+export async function setAgentNativeStatus(
+  status: AgentNativeStatus['status'],
+  lastError: string | null = null
+): Promise<void> {
+  const value: AgentNativeStatus = { status, lastError, lastCheckedAt: Date.now() }
+  await chrome.storage.local.set({ agentNativeStatus: value })
 }
 
 /** Cadastro facial local (só preview/estado; o embedding fica no agente). */

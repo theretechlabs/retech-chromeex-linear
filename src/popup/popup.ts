@@ -104,7 +104,9 @@ $<HTMLButtonElement>('stop-btn').addEventListener('click', async () => {
 
 $<HTMLFormElement>('settings-form').addEventListener('submit', async (event) => {
   event.preventDefault()
+  // Spread preserva campos sem UI própria (ex.: agentTransport).
   const settings: Settings = {
+    ...(await getSettings()),
     apiKey: apiKeyInput.value.trim(),
     webhookUrl: webhookInput.value.trim(),
     phone: phoneInput.value.trim(),
@@ -226,6 +228,12 @@ async function loadEnrollment(): Promise<void> {
   // Checagem de drift: extensão acha que tem cadastro mas o cache do agente sumiu.
   if (!local) return
   try {
+    // Só checa se o agente JÁ está conectado — no modo nativo, mandar comando
+    // spawnaria o processo e acenderia a câmera a cada abertura do popup.
+    const status = (await chrome.runtime.sendMessage({ type: 'GET_AGENT_STATUS' })) as {
+      connected?: boolean
+    }
+    if (!status?.connected) return
     const res = (await chrome.runtime.sendMessage({ type: 'GET_ENROLLMENT' })) as {
       enrolled?: boolean
       error?: string
