@@ -1,0 +1,6 @@
+# mediapipe: FaceLandmarker (tasks API) para liveness por piscada.
+mediapipe>=0.10.30
+# cv2 5.x removeu os haarcascades do wheel (fallback sem liveness usa eles).
+# contrib (dependência do mediapipe) pinado <5 pra não sombrear o cv2 4.x.
+opencv-contrib-python>=4.8,<5
+websockets>=12

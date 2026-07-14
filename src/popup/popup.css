@@ -49,6 +49,46 @@ h1 {
   color: #6ee7a0;
 }
 
+.timer-clock.paused {
+  color: #e8b45e;
+}
+
+.timer-state {
+  font-size: 12px;
+  color: #e8b45e;
+}
+
+fieldset.presence {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 4px 0 0;
+  padding: 10px 12px 12px;
+  border: 1px solid #2c2d33;
+  border-radius: 10px;
+}
+
+fieldset.presence legend {
+  padding: 0 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #9fa2ab;
+}
+
+label.check {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  font-weight: 500;
+}
+
+label.check input[type='checkbox'] {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: #5e6ad2;
+}
+
 form {
   display: flex;
   flex-direction: column;
@@ -104,6 +144,49 @@ button.danger {
 
 button.danger:hover {
   background: #e07070;
+}
+
+.face-enroll {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.face-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #9fa2ab;
+}
+
+.face-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.face-thumb {
+  width: 48px;
+  height: 48px;
+  object-fit: cover;
+  border-radius: 50%;
+  border: 1px solid #2c2d33;
+}
+
+.face-info {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
+}
+
+.face-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.face-actions button {
+  padding: 6px 10px;
+  font-size: 12px;
 }
 
 #feedback.error {

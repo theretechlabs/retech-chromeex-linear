@@ -1,7 +1,15 @@
 import { formatClock } from './lib/format'
-import type { TimerState } from './lib/storage'
+import { getSettings, timerElapsedMs, type PauseReason, type TimerState } from './lib/storage'
 
 const ISSUE_RE = /\/issue\/([A-Za-z0-9]+-\d+)(?:[/?#]|$)/i
+
+const PAUSE_LABEL: Record<PauseReason, string> = {
+  idle: 'inativo',
+  'no-face': 'ausente',
+  'no-tab': 'aba da issue fechada',
+  unrecognized: 'rosto não reconhecido',
+  'no-blink': 'pisque para a câmera 👁'
+}
 
 let pageIdentifier: string | null = null
 let timer: TimerState | null = null
@@ -14,6 +22,7 @@ interface Ui {
   issue: HTMLSpanElement
   clock: HTMLSpanElement
   button: HTMLButtonElement
+  stopButton: HTMLButtonElement
   status: HTMLDivElement
 }
 let ui: Ui | null = null
@@ -56,6 +65,7 @@ function ensureUi(): Ui {
       min-width: 72px;
     }
     .clock.running { color: #6ee7a0; }
+    .clock.paused { color: #e8b45e; }
     button {
       width: 36px;
       height: 36px;
@@ -74,6 +84,15 @@ function ensureUi(): Ui {
     button:disabled { opacity: 0.5; cursor: wait; }
     button.running { background: #d25e5e; }
     button.running:hover { background: #e07070; }
+    button.stop-mini {
+      width: 28px;
+      height: 28px;
+      font-size: 10px;
+      background: #d25e5e;
+      display: none;
+    }
+    button.stop-mini:hover { background: #e07070; }
+    button.stop-mini.visible { display: flex; }
     .status {
       position: fixed;
       right: 18px;
@@ -105,13 +124,19 @@ function ensureUi(): Ui {
   const button = document.createElement('button')
   button.addEventListener('click', () => void onToggle())
 
+  const stopButton = document.createElement('button')
+  stopButton.className = 'stop-mini'
+  stopButton.textContent = '■'
+  stopButton.title = 'Encerrar e registrar tempo'
+  stopButton.addEventListener('click', () => void onStop())
+
   const status = document.createElement('div')
   status.className = 'status'
 
-  // Arrastar pelo corpo do card (botão continua clicável).
+  // Arrastar pelo corpo do card (botões continuam clicáveis).
   let dragOffset: { dx: number; dy: number } | null = null
   card.addEventListener('pointerdown', (e: PointerEvent) => {
-    if (e.target instanceof Node && button.contains(e.target)) return
+    if (e.target instanceof Node && (button.contains(e.target) || stopButton.contains(e.target))) return
     const rect = card.getBoundingClientRect()
     dragOffset = { dx: e.clientX - rect.left, dy: e.clientY - rect.top }
     card.setPointerCapture(e.pointerId)
@@ -130,11 +155,11 @@ function ensureUi(): Ui {
     void chrome.storage.local.set({ widgetPos })
   })
 
-  card.append(issue, clock, button)
+  card.append(issue, clock, button, stopButton)
   shadow.append(style, card, status)
   document.documentElement.append(host)
 
-  ui = { host, card, issue, clock, button, status }
+  ui = { host, card, issue, clock, button, stopButton, status }
   return ui
 }
 
@@ -196,29 +221,43 @@ function syncPage(): void {
 }
 
 function render(): void {
-  const { card, issue, clock, button } = ensureUi()
+  const { card, issue, clock, button, stopButton } = ensureUi()
 
   // Timer ativo → widget em qualquer página do Linear; senão só em issues.
   const visible = timer !== null || pageIdentifier !== null
   card.classList.toggle('visible', visible)
   if (!visible) return
 
-  if (timer) {
+  if (timer && timer.status === 'running') {
     issue.textContent = timer.identifier
-    clock.textContent = formatClock(Date.now() - timer.startedAt)
+    clock.textContent = formatClock(timerElapsedMs(timer))
     clock.classList.add('running')
+    clock.classList.remove('paused')
     button.textContent = '❚❚'
     button.classList.add('running')
-    button.title = `Pausar e registrar tempo em ${timer.identifier}`
+    button.title = `Encerrar e registrar tempo em ${timer.identifier}`
+    stopButton.classList.remove('visible')
+  } else if (timer) {
+    const reason = timer.pauseReason ? PAUSE_LABEL[timer.pauseReason] : 'pausado'
+    issue.textContent = `${timer.identifier} · ⏸ ${reason}`
+    clock.textContent = formatClock(timerElapsedMs(timer))
+    clock.classList.remove('running')
+    clock.classList.add('paused')
+    button.textContent = '▶'
+    button.classList.remove('running')
+    button.title = `Retomar timer em ${timer.identifier}`
+    stopButton.classList.add('visible')
   } else {
     issue.textContent = pageIdentifier
     clock.textContent = '00:00:00'
-    clock.classList.remove('running')
+    clock.classList.remove('running', 'paused')
     button.textContent = '▶'
     button.classList.remove('running')
     button.title = `Iniciar timer em ${pageIdentifier}`
+    stopButton.classList.remove('visible')
   }
   button.disabled = busy
+  stopButton.disabled = busy
 
   if (Date.now() > flashUntil) {
     ensureUi().status.classList.remove('visible')
@@ -233,25 +272,59 @@ function flash(message: string, isError = false): void {
   flashUntil = Date.now() + (isError ? 6000 : 3500)
 }
 
+/** Play/resume manual passa por reconhecimento facial (até ~6s) quando o
+ * agente de câmera está ativo — avisa para o dev olhar para a câmera. */
+async function flashVerifying(): Promise<void> {
+  try {
+    if ((await getSettings()).agentEnabled) flash('🔍 Verificando rosto — olhe para a câmera…')
+  } catch {
+    // Sem settings não pode travar o play.
+  }
+}
+
 async function onToggle(): Promise<void> {
   if (busy) return
   busy = true
   render()
   try {
-    if (timer) {
+    if (timer && timer.status === 'running') {
       await send({ type: 'STOP' })
       timer = null
       flash('✓ Tempo registrado no ticket')
+    } else if (timer) {
+      await flashVerifying()
+      const res = await send<{ timer?: TimerState }>({ type: 'RESUME' })
+      if (res.timer) timer = res.timer
+      flash('▶ Timer retomado')
     } else if (pageIdentifier) {
+      await flashVerifying()
       const res = await send<{ timer: TimerState; previous: TimerState | null }>({
         type: 'START',
         identifier: pageIdentifier
       })
       timer = res.timer
       if (res.previous) {
-        flash(`✓ ${res.previous.identifier} pausado e registrado`)
+        flash(`✓ ${res.previous.identifier} encerrado e registrado`)
+      } else {
+        flash('▶ Timer iniciado')
       }
     }
+  } catch (e) {
+    flash(e instanceof Error ? e.message : String(e), true)
+  } finally {
+    busy = false
+    render()
+  }
+}
+
+async function onStop(): Promise<void> {
+  if (busy) return
+  busy = true
+  render()
+  try {
+    await send({ type: 'STOP' })
+    timer = null
+    flash('✓ Tempo registrado no ticket')
   } catch (e) {
     flash(e instanceof Error ? e.message : String(e), true)
   } finally {

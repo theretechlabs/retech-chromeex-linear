@@ -12,8 +12,9 @@
       <div>
         <div id="timer-issue" class="timer-issue"></div>
         <div id="timer-clock" class="timer-clock"></div>
+        <div id="timer-state" class="timer-state hidden"></div>
       </div>
-      <button id="stop-btn" class="danger">Pausar</button>
+      <button id="stop-btn" class="danger">Encerrar</button>
     </section>
     <p id="no-timer" class="muted">Nenhum timer ativo.</p>
 
@@ -38,6 +39,58 @@
         Lembrar a cada (minutos)
         <input type="number" id="reminderMinutes" min="5" step="5" value="60" />
       </label>
+
+      <fieldset class="presence">
+        <legend>Play/pause automático</legend>
+
+        <label class="check">
+          <input type="checkbox" id="autoPause" checked />
+          <span>Pausar/retomar automaticamente por presença</span>
+        </label>
+
+        <label>
+          Pausar após inatividade (minutos)
+          <input type="number" id="idleMinutes" min="1" step="1" value="5" />
+          <small>Sem teclado/mouse por esse tempo → pause; volta no primeiro input.</small>
+        </label>
+
+        <label class="check">
+          <input type="checkbox" id="requireIssueTab" checked />
+          <span>Exigir aba da issue aberta no Chrome</span>
+        </label>
+
+        <label class="check">
+          <input type="checkbox" id="agentEnabled" />
+          <span>Usar agente de câmera (detecção de rosto)</span>
+        </label>
+
+        <label>
+          Porta do agente
+          <input type="number" id="agentPort" min="1024" max="65535" value="8998" />
+          <small>retech-presence-agent rodando local; veja agent/README.md.</small>
+        </label>
+
+        <label class="check">
+          <input type="checkbox" id="soundEnabled" checked />
+          <span>Tocar som ao pausar/retomar automaticamente</span>
+        </label>
+
+        <div id="face-enroll" class="face-enroll">
+          <span class="face-title">Reconhecimento facial</span>
+          <div class="face-row">
+            <img id="faceThumb" class="face-thumb hidden" alt="Rosto cadastrado" />
+            <div class="face-info">
+              <small id="faceStatus">Nenhum rosto cadastrado.</small>
+              <div class="face-actions">
+                <button type="button" id="face-upload-btn">Enviar foto de referência</button>
+                <button type="button" id="face-remove-btn" class="danger hidden">Remover</button>
+              </div>
+            </div>
+          </div>
+          <input type="file" id="facePhoto" accept="image/*" class="hidden" />
+          <small>Só o rosto cadastrado mantém o timer rodando. Exige o agente de câmera ativo.</small>
+        </div>
+      </fieldset>
 
       <button type="submit" id="save-btn">Salvar</button>
       <p id="feedback" class="muted"></p>
