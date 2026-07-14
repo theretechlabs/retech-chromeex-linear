@@ -52,25 +52,25 @@ Tudo configurável no popup da extensão (minutos de inatividade, exigir aba abe
 
 ## 📷 Reconhecimento facial (opcional, recomendado)
 
-Com o agente de câmera rodando, **só o seu rosto mantém o timer** — e o play manual também exige reconhecimento antes de iniciar.
+Com o agente de câmera instalado, **só o seu rosto mantém o timer** — e o play manual também exige reconhecimento antes de iniciar. O Chrome liga e desliga o agente sozinho: **a câmera só fica acesa enquanto um timer roda**.
 
-**1. Suba o agente** (Python 3.10+):
+**1. Instale o agente** (uma vez; precisa de Python 3.10+):
 
 ```bash
-cd agent
-python3 -m venv .venv
-source .venv/bin/activate        # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-python presence_agent.py
+# macOS / Linux
+curl -fsSL https://raw.githubusercontent.com/theretechlabs/retech-chromeex-linear/main/scripts/install-agent.sh | bash
+
+# Windows (PowerShell)
+iwr -useb https://raw.githubusercontent.com/theretechlabs/retech-chromeex-linear/main/scripts/install-agent.ps1 | iex
 ```
 
-Na primeira execução o macOS pede permissão de câmera — aceite. Os modelos (~42MB) baixam uma única vez.
+Depois reinicie o Chrome. Na primeira execução o sistema pede permissão de câmera — aceite.
 
-**2. Ative na extensão**: popup → marque **"Usar agente de câmera"** → Salvar.
+**2. Ative na extensão**: popup → marque **"Usar agente de câmera"** → Salvar → **"Testar conexão"**.
 
 **3. Cadastre seu rosto**: popup → **"Enviar foto de referência"** → escolha uma foto frontal, bem iluminada, só você nela.
 
-Privacidade: tudo roda 100% local. Nenhuma imagem sai da máquina nem fica em disco — a foto vira um código numérico irreversível (embedding) e é descartada. O LED da câmera aceso é o indicador de que o agente está ativo. Detalhes: [agent/README.md](agent/README.md).
+Privacidade: tudo roda 100% local. Nenhuma imagem sai da máquina nem fica em disco — a foto vira um código numérico irreversível (embedding) e é descartada. O LED da câmera aceso = timer rodando. Para remover: rode o script com `--uninstall`. Modo manual/debug (WebSocket) continua existindo: [agent/README.md](agent/README.md).
 
 ---
 
@@ -164,7 +164,8 @@ scripts/gen-icons.mjs     # gera PNGs dos ícones sem dependências
 
 - Pause automático fecha o **segmento** atual e posta o comentário na hora; o resume abre segmento novo. Total exibido = segmentos fechados + corrente.
 - `background.ts` reavalia presença a cada evento (idle, mensagens do agente, abas) e a cada minuto (alarm). Prioridade do motivo: idle > câmera > aba.
-- Agente ↔ extensão: WebSocket em `ws://127.0.0.1:8998`, só booleanos trafegam. Payload, protocolo de enroll/verify e anti-spoofing (re-arm): [agent/README.md](agent/README.md).
+- Agente ↔ extensão: **native messaging** (Chrome spawna o processo ao conectar e o mata no disconnect; a porta aberta mantém o service worker MV3 vivo) com fallback WebSocket em `ws://127.0.0.1:8998` para o modo manual. Só booleanos trafegam. Payload, protocolo de enroll/verify e anti-spoofing (re-arm): [agent/README.md](agent/README.md).
+- O ID da extensão é **pinado** via `key` no manifest (`knbbiaoppepegcmdplehglahbdkghclh`) — o host manifest do native messaging autoriza esse ID. A chave privada `retech-timer.pem` fica fora do git; ao atualizar de versões antigas o ID muda e as configurações resetam (reconfigurar 1x).
 - Play/resume manual com agente ativo + rosto cadastrado passa por `verify` (espera até 6s por match fresco). Agente offline/sem cadastro → play normal, por decisão — consistente com o auto-pause, que também não trava com o agente fora do ar.
 
 **Release para o time:** push de tag `v*` dispara o GitHub Actions, que builda e anexa o zip numa Release:

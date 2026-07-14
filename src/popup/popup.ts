@@ -21,7 +21,13 @@ const autoPauseInput = $<HTMLInputElement>('autoPause')
 const idleMinutesInput = $<HTMLInputElement>('idleMinutes')
 const requireIssueTabInput = $<HTMLInputElement>('requireIssueTab')
 const agentEnabledInput = $<HTMLInputElement>('agentEnabled')
+const agentTransportSelect = $<HTMLSelectElement>('agentTransport')
 const agentPortInput = $<HTMLInputElement>('agentPort')
+const agentStatusDot = $<HTMLElement>('agentStatusDot')
+const agentStatusText = $<HTMLElement>('agentStatusText')
+const agentInstallBlock = $<HTMLElement>('agent-install')
+const installCmdEl = $<HTMLElement>('installCmd')
+const otherOsBlock = $<HTMLElement>('other-os')
 const soundEnabledInput = $<HTMLInputElement>('soundEnabled')
 const facePhotoInput = $<HTMLInputElement>('facePhoto')
 const faceThumb = $<HTMLImageElement>('faceThumb')
@@ -60,9 +66,15 @@ async function loadSettings(): Promise<void> {
   idleMinutesInput.value = String(s.idleMinutes)
   requireIssueTabInput.checked = s.requireIssueTab
   agentEnabledInput.checked = s.agentEnabled
+  agentTransportSelect.value = s.agentTransport
   agentPortInput.value = String(s.agentPort)
+  agentPortInput.disabled = s.agentTransport === 'native'
   soundEnabledInput.checked = s.soundEnabled
 }
+
+agentTransportSelect.addEventListener('change', () => {
+  agentPortInput.disabled = agentTransportSelect.value === 'native'
+})
 
 async function refreshTimer(): Promise<void> {
   try {
@@ -115,6 +127,7 @@ $<HTMLFormElement>('settings-form').addEventListener('submit', async (event) => 
     idleMinutes: Math.max(1, Number(idleMinutesInput.value) || 5),
     requireIssueTab: requireIssueTabInput.checked,
     agentEnabled: agentEnabledInput.checked,
+    agentTransport: agentTransportSelect.value as Settings['agentTransport'],
     agentPort: Math.min(65535, Math.max(1024, Number(agentPortInput.value) || 8998)),
     soundEnabled: soundEnabledInput.checked
   }
@@ -246,7 +259,126 @@ async function loadEnrollment(): Promise<void> {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Setup do agente: status da conexão, comando de instalação, teste.
+// ---------------------------------------------------------------------------
+
+const INSTALL_BASE = 'https://raw.githubusercontent.com/theretechlabs/retech-chromeex-linear/main/scripts'
+const INSTALL_CMDS: Record<string, { label: string; cmd: string }> = {
+  mac: { label: 'macOS', cmd: `curl -fsSL ${INSTALL_BASE}/install-agent.sh | bash` },
+  linux: { label: 'Linux', cmd: `curl -fsSL ${INSTALL_BASE}/install-agent.sh | bash` },
+  win: { label: 'Windows (PowerShell)', cmd: `iwr -useb ${INSTALL_BASE}/install-agent.ps1 | iex` }
+}
+
+function currentOs(): 'mac' | 'win' | 'linux' {
+  const ua = navigator.userAgent
+  if (/Macintosh/.test(ua)) return 'mac'
+  if (/Windows/.test(ua)) return 'win'
+  return 'linux'
+}
+
+interface AgentStatus {
+  transport: 'native' | 'ws' | null
+  connected: boolean
+  ready: boolean
+  nativeStatus: { status: string; lastError: string | null }
+}
+
+function renderAgentStatus(status: AgentStatus | null, transportSetting: string): void {
+  let dot = 'unknown'
+  let text = 'Estado do agente desconhecido'
+  let showInstall = false
+  if (!status) {
+    text = 'Não consegui consultar o background — recarregue a extensão'
+    dot = 'error'
+  } else if (transportSetting === 'ws') {
+    dot = status.connected ? 'ok' : 'unknown'
+    text = status.connected
+      ? 'Modo legado (WebSocket) — conectado'
+      : 'Modo legado (WebSocket) — agente manual não conectado'
+  } else if (status.connected) {
+    dot = 'ok'
+    text = status.transport === 'native'
+      ? status.ready ? 'Agente nativo rodando' : 'Agente nativo iniciando…'
+      : 'Conectado via WebSocket (fallback)'
+  } else {
+    switch (status.nativeStatus.status) {
+      case 'ok':
+        dot = 'ok'
+        text = 'Agente nativo instalado (inicia junto com o timer)'
+        break
+      case 'not_installed':
+        dot = 'error'
+        text = 'Agente não instalado'
+        showInstall = true
+        break
+      case 'error':
+        dot = 'error'
+        text = `Agente com erro: ${status.nativeStatus.lastError ?? 'desconhecido'}`
+        showInstall = true
+        break
+      default:
+        dot = 'unknown'
+        text = 'Agente ainda não testado — use "Testar conexão"'
+        showInstall = true
+    }
+  }
+  agentStatusDot.className = `status-dot ${dot}`
+  agentStatusText.textContent = text
+  agentInstallBlock.classList.toggle('hidden', !showInstall)
+}
+
+async function loadAgentStatus(): Promise<void> {
+  installCmdEl.textContent = INSTALL_CMDS[currentOs()].cmd
+  otherOsBlock.innerHTML = ''
+  for (const [os, { label, cmd }] of Object.entries(INSTALL_CMDS)) {
+    if (os === currentOs()) continue
+    const line = document.createElement('small')
+    line.textContent = `${label}: ${cmd}`
+    otherOsBlock.appendChild(line)
+  }
+  try {
+    const [status, settings] = await Promise.all([
+      chrome.runtime.sendMessage({ type: 'GET_AGENT_STATUS' }) as Promise<AgentStatus>,
+      getSettings()
+    ])
+    renderAgentStatus(status, settings.agentTransport)
+  } catch {
+    renderAgentStatus(null, 'auto')
+  }
+}
+
+$<HTMLButtonElement>('copy-cmd-btn').addEventListener('click', async () => {
+  await navigator.clipboard.writeText(installCmdEl.textContent ?? '')
+  setFeedback('✓ Comando copiado — cole no terminal', 'ok')
+})
+
+$<HTMLAnchorElement>('other-os-link').addEventListener('click', (event) => {
+  event.preventDefault()
+  otherOsBlock.classList.toggle('hidden')
+})
+
+$<HTMLButtonElement>('test-agent-btn').addEventListener('click', async () => {
+  setFeedback('Testando conexão com o agente (pode levar ~15s no primeiro boot)…')
+  try {
+    const res = (await chrome.runtime.sendMessage({ type: 'TEST_AGENT' })) as {
+      ok?: boolean
+      error?: string
+      transport?: string
+      enrolled?: boolean
+    }
+    if (res?.error) throw new Error(res.error)
+    const via = res.transport === 'native' ? 'nativo' : 'WebSocket'
+    const face = res.enrolled ? 'rosto cadastrado' : 'nenhum rosto cadastrado'
+    setFeedback(`✓ Agente respondeu (${via}) — ${face}`, 'ok')
+  } catch (e) {
+    setFeedback(e instanceof Error ? e.message : String(e), 'error')
+  }
+  await loadAgentStatus()
+})
+
 void loadSettings()
 void refreshTimer()
 void loadEnrollment()
+void loadAgentStatus()
 setInterval(renderTimer, 1000)
