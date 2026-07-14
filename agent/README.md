@@ -59,7 +59,26 @@ para um endereço morto depois de baixar o modelo — o upload morre localmente.
 Se aparecer `Failed to send to clearcut` no encerramento, é essa telemetria
 falhando: cosmético, ignorar.
 
-## Instalação
+## Dois modos de execução
+
+- **Native messaging (`--native`)** — modo automático: o **Chrome inicia e
+  encerra o agente sozinho** via `chrome.runtime.connectNative`, conversando
+  por stdio (frames de 4 bytes little-endian + JSON UTF-8). O processo vive
+  enquanto a extensão mantiver a porta aberta e **sai quando o stdin fecha**
+  → câmera ligada só com timer ativo. Requer o host registrado no navegador
+  (feito pelo script de instalação — ver README da raiz). Em `--native` o
+  stdout pertence ao framing: logs vão para stderr e `--show` é ignorado.
+- **WebSocket (default)** — modo manual/debug/legado: você roda o agente no
+  terminal e ele serve `ws://127.0.0.1:8998`.
+
+Flags úteis para automação:
+
+```bash
+python presence_agent.py --download-models   # pré-baixa os 3 modelos e sai (instalador usa)
+RETECH_PRESENCE_CACHE=/tmp/cache-isolado …   # muda o dir de cache (modelos + embedding); útil em testes
+```
+
+## Instalação manual (modo WebSocket/debug)
 
 Requer Python 3.10+.
 
@@ -70,7 +89,7 @@ source .venv/bin/activate        # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-## Uso
+## Uso (modo WebSocket)
 
 ```bash
 python presence_agent.py                    # defaults: porta 8998, câmera 0, grace 15s, blink-window 20s

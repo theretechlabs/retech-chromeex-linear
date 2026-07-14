@@ -47,12 +47,22 @@ após --grace segundos sem rosto (evita pause por olhar de lado).
 
 Heartbeat a cada ~20s mantém o service worker MV3 da extensão acordado.
 
+Transportes:
+- WebSocket (default): servidor em 127.0.0.1:--port; o dev roda o agente à mão.
+- Native messaging (--native): o Chrome inicia este processo via
+  chrome.runtime.connectNative e conversa por stdio (frames de 4 bytes
+  little-endian + JSON UTF-8). O processo VIVE enquanto a porta estiver
+  aberta e SAI quando o stdin fecha — câmera ligada só com timer ativo.
+  stdout é exclusivo do framing (logging vai para stderr); nunca usar print().
+
 Uso:
     python presence_agent.py [--port 8998] [--camera 0] [--grace 15]
                              [--blink-window 20] [--no-liveness]
                              [--no-recognition] [--match-window 10]
                              [--recognition-threshold 0.363]
-                             [--interval 0.2] [--show]
+                             [--interval 0.1] [--show]
+    python presence_agent.py --native            # iniciado pelo Chrome
+    python presence_agent.py --download-models   # pré-baixa modelos e sai
 """
 
 from __future__ import annotations
@@ -63,9 +73,12 @@ import base64
 import json
 import logging
 import os
+import struct
+import sys
 import threading
 import time
 import urllib.request
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 
 import cv2
@@ -81,7 +94,12 @@ LANDMARKER_URL = (
     "https://storage.googleapis.com/mediapipe-models/face_landmarker/"
     "face_landmarker/float16/1/face_landmarker.task"
 )
-MODEL_CACHE = Path.home() / ".cache" / "retech-presence-agent" / "face_landmarker.task"
+# Diretório de cache (modelos + embedding). Env var permite isolar em testes.
+CACHE_DIR = Path(
+    os.environ.get("RETECH_PRESENCE_CACHE")
+    or Path.home() / ".cache" / "retech-presence-agent"
+)
+MODEL_CACHE = CACHE_DIR / "face_landmarker.task"
 BLINK_THRESHOLD = 0.5  # score de blendshape acima disso = olho fechado
 REARM_SECONDS = 3.0  # rosto sumiu por mais que isso → nova piscada obrigatória
 REARM_BLINK_GRACE = 5.0  # carência p/ piscar após o re-arm sem derrubar presença
@@ -98,6 +116,7 @@ EMBEDDING_PATH = MODEL_CACHE.parent / "face_embedding.json"
 COSINE_THRESHOLD = 0.363  # threshold oficial do SFace no opencv_zoo (cosine)
 RECOG_INTERVAL = 1.0  # reconhecimento no máx 1x/s (mais caro que detecção)
 VERIFY_TIMEOUT = 6.0  # segundos que o comando "verify" espera por um match fresco
+CAMERA_READY_TIMEOUT = 15.0  # espera da câmera no verify (cold start via --native)
 
 
 def downscale(frame):
@@ -283,17 +302,22 @@ class FaceRecognizer:
             return False
 
 
+def ensure_recognition_models(args: argparse.Namespace) -> tuple[Path, Path]:
+    yunet = ensure_download(
+        args.yunet_model, YUNET_URL, YUNET_CACHE, "YuNet (~230KB)", min_size=100_000
+    )
+    sface = ensure_download(
+        args.sface_model, SFACE_URL, SFACE_CACHE, "SFace (~37MB)", min_size=1024 * 1024
+    )
+    return yunet, sface
+
+
 def build_recognizer(args: argparse.Namespace) -> FaceRecognizer | None:
     if args.no_recognition:
         log.info("Reconhecimento facial DESLIGADO (--no-recognition)")
         return None
     try:
-        yunet = ensure_download(
-            args.yunet_model, YUNET_URL, YUNET_CACHE, "YuNet (~230KB)", min_size=100_000
-        )
-        sface = ensure_download(
-            args.sface_model, SFACE_URL, SFACE_CACHE, "SFace (~37MB)", min_size=1024 * 1024
-        )
+        yunet, sface = ensure_recognition_models(args)
         recognizer = FaceRecognizer(yunet, sface, args.recognition_threshold)
         log.info(
             "Reconhecimento facial disponível — %s",
@@ -351,7 +375,7 @@ def build_detector(args: argparse.Namespace) -> HaarDetector | LandmarkerDetecto
 
 
 class PresenceState:
-    """Estado compartilhado + broadcast para os clientes conectados."""
+    """Estado compartilhado + broadcast para os transportes conectados."""
 
     def __init__(self) -> None:
         self.present = False
@@ -360,31 +384,35 @@ class PresenceState:
         self.recognized: bool | None = None  # None = reconhecimento off/sem cadastro
         # Último match da referência (epoch); compartilhado p/ o comando "verify".
         self.last_match_at = 0.0
-        # Setado pelo handler WS após enroll/unenroll: o loop zera o crédito de
+        # Setado pelo handler após enroll/unenroll: o loop zera o crédito de
         # match e abre uma carência (rearm) p/ a nova referência assumir sem flap.
         self.match_invalidated = False
-        self.clients: set = set()
+        # Setado no primeiro frame lido com sucesso — o verify espera por isso
+        # no cold start (--native: o processo nasce junto com o play).
+        self.camera_ready = asyncio.Event()
+        # Cada transporte (cliente WS, stdio nativo) registra um sink async.
+        self.sinks: list[Callable[[dict], Awaitable[None]]] = []
 
-    def payload(self) -> str:
-        return json.dumps(
-            {
-                "type": "presence",
-                "present": self.present,
-                "faces": self.faces,
-                "live": self.live,
-                "recognized": self.recognized,
-                "ts": time.time(),
-            }
+    def payload(self) -> dict:
+        return {
+            "type": "presence",
+            "present": self.present,
+            "faces": self.faces,
+            "live": self.live,
+            "recognized": self.recognized,
+            "ts": time.time(),
+        }
+
+    async def emit(self, obj: dict) -> None:
+        if not self.sinks:
+            return
+        await asyncio.gather(
+            *(sink(obj) for sink in list(self.sinks)),
+            return_exceptions=True,
         )
 
     async def broadcast(self) -> None:
-        if not self.clients:
-            return
-        message = self.payload()
-        await asyncio.gather(
-            *(client.send(message) for client in set(self.clients)),
-            return_exceptions=True,
-        )
+        await self.emit(self.payload())
 
 
 async def detection_loop(
@@ -418,6 +446,17 @@ async def detection_loop(
             capture.release()
             capture = None
             continue
+
+        if not state.camera_ready.is_set():
+            # Primeiro frame ok: destrava o verify do cold start e avisa a
+            # extensão que o agente está operacional.
+            state.camera_ready.set()
+            await state.emit({
+                "type": "ready",
+                "recognition": recognizer is not None,
+                "enrolled": bool(recognizer and recognizer.enrolled),
+                "ts": now,
+            })
 
         enforce_match = recognizer is not None and recognizer.enrolled
 
@@ -521,65 +560,172 @@ async def detection_loop(
         await asyncio.sleep(args.interval)
 
 
+async def handle_command(
+    msg: dict, state: PresenceState, recognizer: FaceRecognizer | None
+) -> dict | None:
+    """Comandos da extensão — mesmo protocolo nos dois transportes (WS e nativo)."""
+    mtype = msg.get("type")
+    mid = msg.get("id")
+    if mtype == "enroll":
+        if recognizer is None:
+            return {"type": "enroll_result", "id": mid, "ok": False,
+                    "error": "recognition_unavailable"}
+        image = decode_image(msg.get("image"))
+        if image is None:
+            return {"type": "enroll_result", "id": mid, "ok": False,
+                    "error": "decode_error"}
+        ok, error = await asyncio.to_thread(recognizer.enroll, image)
+        if not ok:
+            return {"type": "enroll_result", "id": mid, "ok": False, "error": error}
+        state.match_invalidated = True
+        log.info("Rosto de referência cadastrado; verificação ATIVA")
+        await state.broadcast()
+        return {"type": "enroll_result", "id": mid, "ok": True}
+    if mtype == "unenroll":
+        if recognizer is not None and recognizer.enrolled:
+            await asyncio.to_thread(recognizer.unenroll)
+            state.match_invalidated = True
+            log.info("Rosto de referência removido; verificação desativada")
+            await state.broadcast()
+        return {"type": "unenroll_result", "id": mid, "ok": True}
+    if mtype == "get_enrollment":
+        return {
+            "type": "enrollment",
+            "id": mid,
+            "enrolled": bool(recognizer and recognizer.enrolled),
+            "available": recognizer is not None,
+        }
+    if mtype == "verify":
+        # Verificação sob demanda (play manual da extensão): espera um match
+        # FRESCO do loop de detecção. Sem cadastro/reconhecimento não há o
+        # que verificar → recognized: null (extensão deixa passar).
+        if recognizer is None or not recognizer.enrolled:
+            return {"type": "verify_result", "id": mid, "ok": True, "recognized": None}
+        # Cold start (--native): o processo acabou de nascer com o play; a
+        # janela de match só começa a contar depois da câmera entregar frame.
+        try:
+            await asyncio.wait_for(state.camera_ready.wait(), timeout=CAMERA_READY_TIMEOUT)
+        except asyncio.TimeoutError:
+            return {"type": "verify_result", "id": mid, "ok": False,
+                    "error": "camera_timeout"}
+        start = time.time()
+        # Match de até 1 ciclo atrás já vale: dev sentado é reconhecido 1x/s.
+        fresh_since = start - RECOG_INTERVAL
+        while time.time() - start < VERIFY_TIMEOUT:
+            if state.last_match_at >= fresh_since:
+                return {"type": "verify_result", "id": mid, "ok": True, "recognized": True}
+            await asyncio.sleep(0.25)
+        return {"type": "verify_result", "id": mid, "ok": True, "recognized": False}
+    return None  # mensagem desconhecida: ignora (comportamento antigo)
+
+
+class NativeTransport:
+    """Native messaging do Chrome via stdio: frames de 4 bytes little-endian
+    de tamanho + JSON UTF-8. Leitura em thread (bloqueante) porque
+    connect_read_pipe não funciona no Proactor loop do Windows. stdout é
+    exclusivo do framing — logging vai para stderr."""
+
+    MAX_FRAME = 8 * 1024 * 1024  # frame inbound acima disso = protocolo corrompido
+    MAX_REPLY = 1_000_000  # limite host→Chrome do native messaging (1MB)
+    _EOF = object()
+
+    def __init__(self) -> None:
+        if sys.platform == "win32":
+            import msvcrt
+            # Sem modo binário o Windows traduz CRLF e corrompe o framing.
+            msvcrt.setmode(sys.stdin.fileno(), os.O_BINARY)
+            msvcrt.setmode(sys.stdout.fileno(), os.O_BINARY)
+        self._stdin = sys.stdin.buffer
+        self._stdout = sys.stdout.buffer
+        self._write_lock = asyncio.Lock()
+        self._queue: asyncio.Queue = asyncio.Queue()
+
+    def _read_exact(self, n: int) -> bytes | None:
+        chunks = b""
+        while len(chunks) < n:
+            chunk = self._stdin.read(n - len(chunks))
+            if not chunk:
+                return None  # EOF: Chrome fechou a porta
+            chunks += chunk
+        return chunks
+
+    def _reader(self, loop: asyncio.AbstractEventLoop) -> None:
+        while True:
+            header = self._read_exact(4)
+            if header is None:
+                break
+            (length,) = struct.unpack("=I", header)
+            if length == 0 or length > self.MAX_FRAME:
+                log.error("Frame inválido (%d bytes); protocolo corrompido", length)
+                break
+            data = self._read_exact(length)
+            if data is None:
+                break
+            try:
+                msg = json.loads(data)
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                continue
+            if isinstance(msg, dict):
+                loop.call_soon_threadsafe(self._queue.put_nowait, msg)
+        loop.call_soon_threadsafe(self._queue.put_nowait, self._EOF)
+
+    def _write(self, frame: bytes) -> None:
+        self._stdout.write(frame)
+        self._stdout.flush()
+
+    async def send(self, obj: dict) -> None:
+        data = json.dumps(obj).encode()
+        if len(data) > self.MAX_REPLY:
+            log.warning("Resposta de %d bytes excede o limite de 1MB; descartada", len(data))
+            return
+        frame = struct.pack("=I", len(data)) + data
+        async with self._write_lock:
+            # Escrita em thread: pipe pode bloquear se o Chrome engasgar.
+            await asyncio.to_thread(self._write, frame)
+
+    async def run(self, state: PresenceState, recognizer: FaceRecognizer | None) -> None:
+        loop = asyncio.get_running_loop()
+        threading.Thread(target=self._reader, args=(loop,), daemon=True).start()
+        await self.send(state.payload())  # snapshot inicial, igual ao WS
+        while True:
+            msg = await self._queue.get()
+            if msg is self._EOF:
+                log.info("stdin fechou (extensão desconectou); encerrando e liberando a câmera")
+                return
+            reply = await handle_command(msg, state, recognizer)
+            if reply is not None:
+                await self.send(reply)
+
+
 async def serve(args: argparse.Namespace) -> None:
     state = PresenceState()
     # Antes do build_detector: os downloads do opencv_zoo precisam acontecer
     # antes de block_telemetry() envenenar o proxy HTTP do processo.
     recognizer = build_recognizer(args)
 
-    async def handle_command(msg: dict) -> dict | None:
-        mtype = msg.get("type")
-        mid = msg.get("id")
-        if mtype == "enroll":
-            if recognizer is None:
-                return {"type": "enroll_result", "id": mid, "ok": False,
-                        "error": "recognition_unavailable"}
-            image = decode_image(msg.get("image"))
-            if image is None:
-                return {"type": "enroll_result", "id": mid, "ok": False,
-                        "error": "decode_error"}
-            ok, error = await asyncio.to_thread(recognizer.enroll, image)
-            if not ok:
-                return {"type": "enroll_result", "id": mid, "ok": False, "error": error}
-            state.match_invalidated = True
-            log.info("Rosto de referência cadastrado; verificação ATIVA")
-            await state.broadcast()
-            return {"type": "enroll_result", "id": mid, "ok": True}
-        if mtype == "unenroll":
-            if recognizer is not None and recognizer.enrolled:
-                await asyncio.to_thread(recognizer.unenroll)
-                state.match_invalidated = True
-                log.info("Rosto de referência removido; verificação desativada")
-                await state.broadcast()
-            return {"type": "unenroll_result", "id": mid, "ok": True}
-        if mtype == "get_enrollment":
-            return {
-                "type": "enrollment",
-                "id": mid,
-                "enrolled": bool(recognizer and recognizer.enrolled),
-                "available": recognizer is not None,
-            }
-        if mtype == "verify":
-            # Verificação sob demanda (play manual da extensão): espera um match
-            # FRESCO do loop de detecção. Sem cadastro/reconhecimento não há o
-            # que verificar → recognized: null (extensão deixa passar).
-            if recognizer is None or not recognizer.enrolled:
-                return {"type": "verify_result", "id": mid, "ok": True, "recognized": None}
-            start = time.time()
-            # Match de até 1 ciclo atrás já vale: dev sentado é reconhecido 1x/s.
-            fresh_since = start - RECOG_INTERVAL
-            while time.time() - start < VERIFY_TIMEOUT:
-                if state.last_match_at >= fresh_since:
-                    return {"type": "verify_result", "id": mid, "ok": True, "recognized": True}
-                await asyncio.sleep(0.25)
-            return {"type": "verify_result", "id": mid, "ok": True, "recognized": False}
-        return None  # mensagem desconhecida: ignora (comportamento antigo)
+    if args.native:
+        transport = NativeTransport()
+        state.sinks.append(transport.send)
+        log.info("Native messaging (stdio): processo vive enquanto a porta estiver aberta")
+        detection = asyncio.create_task(detection_loop(state, args, recognizer))
+        stdio = asyncio.create_task(transport.run(state, recognizer))
+        # Qualquer um terminar (stdin EOF ou crash do loop) derruba o processo:
+        # agente sem câmera ou sem porta não tem o que fazer.
+        done, pending = await asyncio.wait({detection, stdio}, return_when=asyncio.FIRST_COMPLETED)
+        for task in pending:
+            task.cancel()
+        for task in done:
+            task.result()  # propaga exceção para o log
+        return
 
     async def handler(websocket) -> None:
-        state.clients.add(websocket)
-        log.info("Extensão conectada (%d cliente(s))", len(state.clients))
+        async def sink(obj: dict) -> None:
+            await websocket.send(json.dumps(obj))
+
+        state.sinks.append(sink)
+        log.info("Extensão conectada (%d cliente(s))", len(state.sinks))
         try:
-            await websocket.send(state.payload())
+            await websocket.send(json.dumps(state.payload()))
             async for raw in websocket:
                 try:
                     msg = json.loads(raw)
@@ -587,12 +733,12 @@ async def serve(args: argparse.Namespace) -> None:
                     continue
                 if not isinstance(msg, dict):
                     continue
-                reply = await handle_command(msg)
+                reply = await handle_command(msg, state, recognizer)
                 if reply is not None:
                     await websocket.send(json.dumps(reply))
         finally:
-            state.clients.discard(websocket)
-            log.info("Extensão desconectada (%d cliente(s))", len(state.clients))
+            state.sinks.remove(sink)
+            log.info("Extensão desconectada (%d cliente(s))", len(state.sinks))
 
     # max_size default (1MB) é apertado p/ foto de enroll em base64.
     async with websockets.serve(handler, "127.0.0.1", args.port, max_size=5 * 1024 * 1024):
@@ -629,13 +775,35 @@ def main() -> None:
                         help="segundos entre frames (default 0.1 com liveness, 0.5 sem)")
     parser.add_argument("--show", action="store_true",
                         help="janela de preview para debug (q para sair)")
-    args = parser.parse_args()
+    parser.add_argument("--native", action="store_true",
+                        help="native messaging via stdio (iniciado pelo Chrome; "
+                             "sai quando o stdin fecha)")
+    parser.add_argument("--download-models", action="store_true",
+                        help="baixa/valida os modelos e sai (usado pelo instalador)")
+    # parse_known_args: o Chrome passa a origin (chrome-extension://…) e, no
+    # Windows, --parent-window= como argumentos extras — ignorar, não morrer.
+    args, unknown = parser.parse_known_args()
     if args.interval is None:
         # Piscada dura ~100-300ms: a 5fps muitas caem entre frames e o dev fica
         # esperando a próxima; 10fps captura com folga e o resume sai em ~1-3s.
         args.interval = 0.5 if args.no_liveness else 0.1
 
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    # stderr sempre: em modo nativo o stdout pertence ao framing.
+    logging.basicConfig(
+        level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s", stream=sys.stderr
+    )
+    if unknown:
+        log.debug("Argumentos ignorados (Chrome): %s", unknown)
+    if args.download_models:
+        ensure_model(args.model)
+        if not args.no_recognition:
+            ensure_recognition_models(args)
+        log.info("Modelos prontos em %s", MODEL_CACHE.parent)
+        return
+    if args.native and args.show:
+        log.warning("--show ignorado em modo --native")
+        args.show = False
+
     try:
         asyncio.run(serve(args))
     except KeyboardInterrupt:
