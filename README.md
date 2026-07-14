@@ -1,52 +1,102 @@
 # Retech Linear Timer
 
-Extensão Chrome de time tracking para o Linear. Injeta botão play/pause nas issues, mostra cronômetro ao vivo e, ao pausar, registra o tempo como comentário na Activity do ticket — no padrão consumido pela extração de dados da Retech:
+Extensão Chrome que cronometra seu trabalho nas issues do Linear e registra o tempo automaticamente como comentário no ticket. Você dá o play; pausar, retomar e registrar é por conta dela.
 
-```
-init_task: 2026-07-09 09:00:00.000000 +00:00
--end_task: 2026-07-09 12:00:00.000000 +00:00-
-```
+---
 
-## Funcionalidades
+## 🚀 Comece aqui (5 minutos)
 
-- **Play/pause** em widget flutuante nas páginas de issue do `linear.app` (cronômetro ao vivo).
-- **Comentário automático** na issue a cada pause, via API GraphQL do Linear.
-- **Play/pause automático por presença** (v0.2): depois do play manual, o timer
-  pausa/retoma sozinho conforme três sinais combinados —
-  1. **Inatividade** (`chrome.idle`): sem teclado/mouse por N minutos (padrão 5) → pause; primeiro input → play.
-  2. **Câmera** (opcional): o [agente local](agent/README.md) roda face detection + prova de vida (liveness por piscada — foto no celular/impressa não engana) + **reconhecimento facial** na webcam. Cadastrando uma foto de referência no popup, só o rosto do dev mantém o timer rodando — estranho na cadeira conta como ausente. Rosto saiu por 15s, parou de piscar por 20s ou não foi reconhecido por 10s → pause; sentou de volta, piscou e foi reconhecido → play. Rosto que reaparece após ausência precisa piscar e dar match de novo antes de contar como presente.
-  3. **Aba da issue**: se nenhuma aba do Chrome tem a issue aberta → pause; reabriu → play.
-  Cada segmento play→pause vira um comentário `init_task`/`-end_task` na issue (segmentos < 1 min não geram comentário, para não poluir a Activity). Tudo configurável/desligável no popup.
-- **Um timer por dev**: dar play em outra issue encerra e registra a anterior automaticamente.
-- **Badge** no ícone da extensão com o tempo decorrido (laranja = pausado por ausência).
-- **Lembrete de pausa**: com timer rodando, a cada N minutos (padrão 60) dispara notificação no Chrome **e** um POST no webhook do n8n — que encaminha WhatsApp via Evolution API.
-- Timer sobrevive a reload, troca de aba, fechamento do navegador e sleep da máquina (estado persistido; o tempo é sempre calculado por timestamp).
+**1. Instale a extensão**
 
-## Desenvolvimento
+1. Baixe o `retech-linear-timer.zip` da [última release](https://github.com/theretechlabs/retech-chromeex-linear/releases/latest)
+2. Extraia **sempre na mesma pasta** (ex.: `~/linear-timer/`)
+3. Chrome → `chrome://extensions` → ative **Developer mode** (canto superior direito)
+4. **Load unpacked** → selecione a pasta extraída
+
+**2. Conecte ao Linear**
+
+1. No Linear: **Settings → Security & access → Personal API keys → New key**
+2. Clique no ícone da extensão → cole a key → **Salvar**
+
+**3. Use**
+
+1. Abra qualquer issue no `linear.app` → aparece um widget flutuante no canto da tela
+2. **▶** inicia o timer · **❚❚** encerra e registra o tempo na issue
+3. Pronto. O tempo aparece como comentário na Activity do ticket.
+
+> Para atualizar a extensão depois: baixe o zip novo, extraia por cima da mesma pasta e clique no ↻ da extensão em `chrome://extensions`.
+
+---
+
+## ⏯️ O que acontece sozinho
+
+Depois do seu play, o timer **pausa e retoma sem você fazer nada**:
+
+| Situação | O que acontece |
+|---|---|
+| Ficou 5 min sem teclado/mouse | ⏸ pausa · volta no primeiro input |
+| Fechou a aba da issue | ⏸ pausa · reabriu → ▶ retoma |
+| Saiu da frente da câmera (com agente) | ⏸ pausa · sentou e piscou → ▶ retoma |
+| Outra pessoa sentou no seu lugar | ⏸ continua pausado ("rosto não reconhecido") |
+| Play em outra issue | encerra e registra a anterior automaticamente |
+
+- O motivo do pause aparece no widget: `inativo`, `ausente`, `aba da issue fechada`, `rosto não reconhecido`, `pisque para a câmera 👁`.
+- **Voz** avisa quando pausa/retoma automaticamente (dá pra desligar no popup).
+- Segmentos menores que 1 minuto não geram comentário (não polui a Activity).
+- O timer sobrevive a reload, troca de aba, fechar o navegador e sleep da máquina.
+- Badge no ícone mostra o tempo decorrido (laranja = pausado).
+
+Tudo configurável no popup da extensão (minutos de inatividade, exigir aba aberta, som etc.).
+
+---
+
+## 📷 Reconhecimento facial (opcional, recomendado)
+
+Com o agente de câmera rodando, **só o seu rosto mantém o timer** — e o play manual também exige reconhecimento antes de iniciar.
+
+**1. Suba o agente** (Python 3.10+):
 
 ```bash
-npm install
-npm run build   # gera dist/
+cd agent
+python3 -m venv .venv
+source .venv/bin/activate        # Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+python presence_agent.py
 ```
 
-O formato do comentário está isolado em `src/lib/format.ts`. Não alterar sem atualizar o parser da extração.
+Na primeira execução o macOS pede permissão de câmera — aceite. Os modelos (~42MB) baixam uma única vez.
 
-## Como testar (load unpacked)
+**2. Ative na extensão**: popup → marque **"Usar agente de câmera"** → Salvar.
 
-1. `npm run build`
-2. Chrome → `chrome://extensions`
-3. Ativar **Developer mode** (canto superior direito)
-4. **Load unpacked** → selecionar a pasta `dist/`
-5. Clicar no ícone da extensão → colar a **Linear API Key**
-   (Linear → Settings → Security & access → **Personal API keys** → New key)
-6. Abrir qualquer issue no `linear.app` → widget aparece no canto inferior direito → **▶**
-7. Esperar um pouco → **❚❚** → comentário aparece na Activity da issue
+**3. Cadastre seu rosto**: popup → **"Enviar foto de referência"** → escolha uma foto frontal, bem iluminada, só você nela.
 
-Após mudar código: `npm run build` de novo e clicar no ícone de **reload** da extensão em `chrome://extensions`.
+Privacidade: tudo roda 100% local. Nenhuma imagem sai da máquina nem fica em disco — a foto vira um código numérico irreversível (embedding) e é descartada. O LED da câmera aceso é o indicador de que o agente está ativo. Detalhes: [agent/README.md](agent/README.md).
 
-## Lembrete via n8n + Evolution API
+---
 
-Com timer ativo, a extensão faz POST no webhook configurado, a cada intervalo:
+## 🔧 Problemas comuns
+
+| Sintoma | Causa / solução |
+|---|---|
+| Widget mostra "pisque para a câmera 👁" | O agente está esperando sua piscada pra confirmar que é você (e não uma foto). Pisque olhando pra câmera — retoma em ~1–3s. |
+| "Rosto não reconhecido" sendo você | Óculos/iluminação diferente da foto cadastrada. Reenvie uma foto nas condições da sua mesa, ou rode o agente com `--recognition-threshold 0.30` (menos rígido). |
+| Play manual bloqueado com "Rosto não reconhecido" | Olhe pra câmera e clique de novo. A verificação espera até 6s. |
+| Timer pausou e não volta | Veja o motivo no widget. Aba da issue fechada? Reabra. Agente caiu? O pause por câmera deixa de valer sozinho (idle e aba continuam). |
+| Agente não conecta | Porta do popup ≠ porta do agente (padrão 8998). Confira se o agente está rodando no terminal. |
+| Sem som no pause/play | Toggle "Tocar som" no popup. Som só toca em pause/retomada **automáticos** — ações manuais são mudas. |
+
+---
+
+## 📱 Lembrete no WhatsApp (opcional)
+
+Com timer rodando, a cada N minutos (padrão 60) a extensão dispara uma notificação no Chrome e um POST num webhook do n8n — que encaminha pro WhatsApp via Evolution API.
+
+Configuração no popup: URL do webhook + seu número. Ao salvar, o Chrome pede permissão pro host do n8n — aceite.
+
+<details>
+<summary>Montar o workflow no n8n</summary>
+
+Payload que a extensão envia:
 
 ```json
 {
@@ -57,94 +107,83 @@ Com timer ativo, a extensão faz POST no webhook configurado, a cada intervalo:
   "startedAt": "2026-07-09T12:00:00.000Z",
   "elapsedMinutes": 60,
   "elapsedHuman": "1h 00m",
-  "message": "⏱️ Timer ativo há 1h 00m na THE-558 — Definição sobre...\n\nQue tal uma pausa de 5 min? ☕"
+  "message": "⏱️ Timer ativo há 1h 00m na THE-558 — ...\n\nQue tal uma pausa de 5 min? ☕"
 }
 ```
 
-`message` já vem pronto, com quebras de linha reais — o n8n só repassa.
+`message` já vem pronto com quebras de linha reais — o n8n só repassa.
 
-Workflow no n8n:
-
-1. **Webhook node** — método POST, path ex.: `linear-timer`. Usar a URL de produção no popup da extensão.
+1. **Webhook node** — POST, path ex.: `linear-timer`. Use a URL de produção no popup.
 2. **HTTP Request node** → Evolution API:
-   - URL: `{EVOLUTION_URL}/message/sendText/{INSTANCIA}`
-   - Header: `apikey: {SUA_KEY}`
-   - Body: **Using Fields Below** (não "Using JSON" — `\n` em JSON manual vai literal):
-     - `number` = `{{ $json.body.phone }}`
-     - `text` = `{{ $json.body.message }}`
+   - URL: `{EVOLUTION_URL}/message/sendText/{INSTANCIA}` · Header: `apikey: {SUA_KEY}`
+   - Body **Using Fields Below** (não "Using JSON" — `\n` manual vai literal):
+     `number` = `{{ $json.body.phone }}` · `text` = `{{ $json.body.message }}`
      (Evolution v1 usa `textMessage.text` no lugar de `text`.)
 
-Ao salvar o webhook no popup, o Chrome pede permissão para o host do n8n — aceitar.
+O lembrete depende do Chrome aberto — como o timer só roda com você trabalhando no navegador, cobre o caso real.
 
-> Limitação natural: o lembrete depende do Chrome aberto. Como o timer só roda com o dev trabalhando no navegador, na prática cobre o caso real.
+</details>
 
-## Atualizar o time sem a loja (GitHub Releases)
+---
 
-Push de tag `v*` dispara o GitHub Actions, que builda e anexa `retech-linear-timer.zip` numa Release:
+## 👩‍💻 Para quem desenvolve
 
 ```bash
-git tag v0.1.1 && git push origin v0.1.1
+npm install
+npm run build   # tsc + vite → dist/
 ```
 
-Cada dev (sem precisar de Node/git):
+Após mudar código: `npm run build` e ↻ na extensão em `chrome://extensions`.
 
-1. Baixar o zip da [última release](https://github.com/theretechlabs/retech-chromeex-linear/releases/latest)
-2. Extrair **sempre na mesma pasta** (ex.: `~/linear-timer/`)
-3. Primeira vez: `chrome://extensions` → Developer mode → Load unpacked → essa pasta
-4. Atualizações: extrair o zip novo por cima da mesma pasta → botão ↻ da extensão
+**⚠️ Contrato crítico:** o comentário postado na issue é consumido pela extração de dados da Retech. O formato está isolado em `src/lib/format.ts` — **não alterar** sem atualizar o parser da extração:
 
-## Publicar na Chrome Web Store
+```
+init_task: 2026-07-09 09:00:00.000000 +00:00
+-end_task: 2026-07-09 12:00:00.000000 +00:00-
+```
 
-1. Criar conta em [Chrome Web Store Developer Dashboard](https://chrome.google.com/webstore/devconsole) — taxa única de US$ 5.
-2. `npm run zip` → gera `retech-linear-timer.zip`.
-3. Dashboard → **New item** → upload do zip.
-4. Preencher: descrição, ícone 128px (já em `public/icons/`), screenshots (1280×800), categoria *Workflow & Planning*.
-5. **Privacy**: single purpose = "time tracking em issues do Linear"; justificar permissões (`storage` = configurações, `alarms` = cronômetro/lembrete, `notifications` = lembrete de pausa, `idle` = auto-pause por inatividade, `tabs` = detectar aba da issue aberta, `offscreen` = tocar aviso sonoro de pause/play, host `api.linear.app` = criar comentários).
-6. **Visibility: Unlisted** — só instala quem tem o link. Ideal para uso interno do time.
-7. Submeter → review costuma levar de 1 a 3 dias úteis. Atualizações: subir novo zip com `version` incrementada no `manifest.config.ts`.
-
-Alternativa sem loja (só testes): cada dev usa load unpacked — mas sem atualização automática.
-
-## Estrutura
+**Estrutura:**
 
 ```
 manifest.config.ts        # manifest MV3 (CRXJS)
 src/
-  background.ts           # service worker: timer (run/pause), presença (idle+câmera+aba), badge, alarms, webhook
+  background.ts           # service worker: timer, presença (idle+câmera+aba), verify, badge, sons, webhook
   content.ts              # widget play/pause injetado no linear.app (shadow DOM)
-  popup/                  # configurações (API key, webhook, presença, intervalo)
+  offscreen/              # documento offscreen que toca os mp3 (MV3 não toca áudio no SW)
+  popup/                  # configurações + cadastro facial
   lib/
     format.ts             # ⚠️ formato exato do comentário + helpers de tempo
     linear.ts             # cliente GraphQL (resolveIssue, commentCreate, viewer)
     storage.ts            # estado do timer + settings em chrome.storage.local
-agent/                    # agente local de presença (Python + MediaPipe + WebSocket)
+agent/                    # agente local de presença (Python: detecção + liveness + reconhecimento)
+public/sounds/            # pause.mp3 / resume.mp3 / unrecognized.mp3
 scripts/gen-icons.mjs     # gera PNGs dos ícones sem dependências
 ```
 
-## Play/pause automático — como funciona por dentro
+**Como funciona por dentro:**
 
-- O play continua **manual** (associa o timer à issue), mas com agente ativo +
-  rosto cadastrado ele só inicia **depois do reconhecimento facial**: o
-  background pede um `verify` ao agente (espera até ~6s por um match fresco) e
-  bloqueia com "rosto não reconhecido" se não for o dev. Retomar manual passa
-  pela mesma verificação. Agente desligado/offline ou sem foto cadastrada →
-  play normal (consistente com o auto-pause, que também não trava com o agente
-  fora do ar). A partir daí o
-  `background.ts` reavalia presença a cada evento (`chrome.idle.onStateChanged`,
-  mensagens do agente, abas abertas/fechadas) e a cada minuto (alarm do badge).
-- Pause automático fecha o **segmento** atual e posta o comentário
-  `init_task`/`-end_task` na hora; o resume abre um segmento novo. O total
-  exibido = segmentos fechados + segmento corrente.
-- O agente de câmera conversa com a extensão por WebSocket em
-  `ws://127.0.0.1:8998` (só loopback; nenhuma imagem sai da máquina — ver
-  `agent/README.md`). Sem agente rodando, a regra da câmera simplesmente não
-  se aplica (idle + aba continuam valendo).
-- Motivo do pause aparece no widget e no popup: `inativo`, `ausente` (câmera),
-  `rosto não reconhecido` ou `aba da issue fechada`.
-- **Voz de pause/play** (opcional, toggle no popup): transições **automáticas**
-  tocam `public/sounds/pause.mp3` / `resume.mp3` via offscreen document (MV3
-  não toca áudio no service worker). Ações manuais são mudas; sem os mp3, o
-  aviso é no-op.
+- Pause automático fecha o **segmento** atual e posta o comentário na hora; o resume abre segmento novo. Total exibido = segmentos fechados + corrente.
+- `background.ts` reavalia presença a cada evento (idle, mensagens do agente, abas) e a cada minuto (alarm). Prioridade do motivo: idle > câmera > aba.
+- Agente ↔ extensão: WebSocket em `ws://127.0.0.1:8998`, só booleanos trafegam. Payload, protocolo de enroll/verify e anti-spoofing (re-arm): [agent/README.md](agent/README.md).
+- Play/resume manual com agente ativo + rosto cadastrado passa por `verify` (espera até 6s por match fresco). Agente offline/sem cadastro → play normal, por decisão — consistente com o auto-pause, que também não trava com o agente fora do ar.
+
+**Release para o time:** push de tag `v*` dispara o GitHub Actions, que builda e anexa o zip numa Release:
+
+```bash
+git tag v0.2.0 && git push origin v0.2.0
+```
+
+<details>
+<summary>Publicar na Chrome Web Store</summary>
+
+1. Conta no [Developer Dashboard](https://chrome.google.com/webstore/devconsole) — taxa única de US$ 5.
+2. `npm run zip` → **New item** → upload.
+3. Descrição, ícone 128px (`public/icons/`), screenshots 1280×800, categoria *Workflow & Planning*.
+4. **Privacy**: single purpose = "time tracking em issues do Linear"; justificar permissões (`storage` = configurações, `alarms` = cronômetro/lembrete, `notifications` = lembrete de pausa, `idle` = auto-pause por inatividade, `tabs` = detectar aba da issue, `offscreen` = aviso sonoro, host `api.linear.app` = criar comentários).
+5. **Visibility: Unlisted** — só instala quem tem o link.
+6. Review: 1–3 dias úteis. Atualizações: novo zip com `version` incrementada no `manifest.config.ts`.
+
+</details>
 
 ## Roadmap
 
