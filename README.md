@@ -54,7 +54,7 @@ Tudo configurável no popup da extensão (minutos de inatividade, exigir aba abe
 
 ## 📷 Reconhecimento facial (opcional, recomendado)
 
-Com o agente de câmera instalado, **só o seu rosto mantém o timer** — e o play manual também exige reconhecimento antes de iniciar. O Chrome liga e desliga o agente sozinho: **a câmera só fica acesa enquanto um timer roda**.
+Com o agente de câmera instalado, **só o seu rosto mantém o timer** — e o play manual também exige reconhecimento antes de iniciar. Sem foto cadastrada o play **nem inicia** ("Cadastre seu rosto no popup"). O Chrome liga e desliga o agente sozinho: **a câmera só fica acesa enquanto um timer roda**.
 
 **1. Instale o agente** (uma vez; precisa de Python 3.10+):
 
@@ -83,6 +83,7 @@ Privacidade: tudo roda 100% local. Nenhuma imagem sai da máquina nem fica em di
 | Widget mostra "pisque para a câmera 👁" | O agente está esperando sua piscada pra confirmar que é você (e não uma foto). Pisque olhando pra câmera — retoma em ~1–3s. |
 | "Rosto não reconhecido" sendo você | Óculos/iluminação diferente da foto cadastrada. Reenvie uma foto nas condições da sua mesa, ou rode o agente com `--recognition-threshold 0.30` (menos rígido). |
 | Play manual bloqueado com "Rosto não reconhecido" | Olhe pra câmera e clique de novo. A verificação espera até 6s. |
+| Play bloqueado com "Cadastre seu rosto" | Com o agente ativo, o timer só inicia depois de cadastrar a foto de referência no popup — proposital, senão não cadastrar viraria bypass da verificação. |
 | Play demora alguns segundos pra iniciar | Normal com reconhecimento ligado: o Chrome **liga o agente na hora do play** (câmera sobe em ~3–5s) e verifica seu rosto antes de contar tempo. |
 | "Câmera não respondeu" ao dar play | Outro app está usando a câmera (Zoom/Meet?) ou é a primeira execução baixando modelos — feche o app/espere 1 min e tente de novo. |
 | Timer pausou e não volta | Veja o motivo no widget. Aba da issue fechada? Reabra. Agente caiu? O pause por câmera deixa de valer sozinho (idle e aba continuam). |

@@ -146,7 +146,9 @@ O agente também aceita comandos (JSON, resposta só para quem pediu):
 // por um match fresco do rosto cadastrado
 {"type": "verify", "id": "uuid"}
 // → {"type": "verify_result", "id": "uuid", "ok": true, "recognized": true|false}
-// → recognized: null quando não há rosto cadastrado (nada a verificar)
+// → sem cadastro: {"recognized": null, "available": true|false, "enrolled": false}
+//   available && !enrolled → a extensão BLOQUEIA o play ("cadastre seu rosto");
+//   reconhecimento indisponível (available: false) → extensão deixa passar
 ```
 
 A foto de enroll deve ter **exatamente um** rosto. Após enroll/unenroll o
