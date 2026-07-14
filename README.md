@@ -193,4 +193,4 @@ git tag v0.3.0 && git push origin v0.3.0
 
 ## Roadmap
 
-- **v0.4**: relatório semanal (script agrega comentários via API), dashboard de horas por dev/projeto, OAuth do Linear no lugar de API key, launcher `.exe` no Windows (elimina o flash de console do `.bat`).
+Plano vivo em **[docs/ROADMAP.md](docs/ROADMAP.md)** — inclui a v0.4 (OAuth, relatório semanal, dashboard) e a trilha de produto para o Integration Directory do Linear.
