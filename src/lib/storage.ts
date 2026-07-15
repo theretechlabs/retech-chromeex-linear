@@ -3,6 +3,17 @@ export type TimerStatus = 'running' | 'paused'
 /** Motivo do pause automático. */
 export type PauseReason = 'idle' | 'no-face' | 'no-tab' | 'unrecognized' | 'no-blink'
 
+/** Parcial fechada de um ciclo play→pause. */
+export interface TimerSegment {
+  /** Epoch ms do início do segmento. */
+  start: number
+  /** Epoch ms do pause que fechou o segmento. */
+  end: number
+  reason: PauseReason
+  /** false quando ficou abaixo do mínimo e não virou comentário no Linear. */
+  posted: boolean
+}
+
 export interface TimerState {
   /** UUID interno do Linear, usado na mutation de comentário. */
   issueId: string
@@ -16,6 +27,8 @@ export interface TimerState {
   segmentStartedAt: number
   /** Tempo acumulado dos segmentos anteriores (já registrados no Linear no pause). */
   accumulatedMs: number
+  /** Parciais fechadas que compõem `accumulatedMs`. */
+  segments: TimerSegment[]
   /** Epoch ms do pause atual; null quando rodando. */
   pausedAt: number | null
   pauseReason: PauseReason | null
@@ -102,7 +115,7 @@ export function timerElapsedMs(timer: TimerState, now = Date.now()): number {
 export async function getTimer(): Promise<TimerState | null> {
   const { timer } = await chrome.storage.local.get('timer')
   if (!timer) return null
-  const t = timer as TimerState & { status?: TimerStatus }
+  const t = timer as TimerState & { status?: TimerStatus; segments?: TimerSegment[] }
   // Migração de timers v0.1 (sem pause/resume) persistidos antes do upgrade.
   if (t.status === undefined) {
     return {
@@ -110,10 +123,13 @@ export async function getTimer(): Promise<TimerState | null> {
       status: 'running',
       segmentStartedAt: t.startedAt,
       accumulatedMs: 0,
+      segments: [],
       pausedAt: null,
       pauseReason: null
     }
   }
+  // Timers pré-v0.4 não guardavam a lista de parciais.
+  if (t.segments === undefined) return { ...t, segments: [] }
   return t
 }
 

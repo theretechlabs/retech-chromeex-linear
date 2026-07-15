@@ -21,6 +21,8 @@ interface Ui {
   card: HTMLDivElement
   issue: HTMLSpanElement
   clock: HTMLSpanElement
+  partials: HTMLButtonElement
+  popover: HTMLDivElement
   button: HTMLButtonElement
   stopButton: HTMLButtonElement
   status: HTMLDivElement
@@ -93,6 +95,67 @@ function ensureUi(): Ui {
     }
     button.stop-mini:hover { background: #e07070; }
     button.stop-mini.visible { display: flex; }
+    button.partials {
+      width: 24px;
+      height: 24px;
+      font-size: 10px;
+      font-weight: 700;
+      background: #2c2d33;
+      color: #6b6e78;
+      cursor: default;
+    }
+    button.partials:hover { background: #2c2d33; }
+    button.partials.active {
+      background: #1f3a2b;
+      color: #6ee7a0;
+      cursor: pointer;
+    }
+    button.partials.active:hover { background: #27492f; }
+    .popover {
+      position: absolute;
+      bottom: calc(100% + 10px);
+      right: 0;
+      display: none;
+      min-width: 240px;
+      max-height: 260px;
+      overflow-y: auto;
+      padding: 10px 12px;
+      border-radius: 10px;
+      background: #24262c;
+      border: 1px solid #2c2d33;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+      color: #c9ccd4;
+      font: 12px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      cursor: default;
+    }
+    .popover.visible { display: block; }
+    .popover h4 {
+      margin: 0 0 6px;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: #9fa2ab;
+    }
+    .popover table { border-collapse: collapse; width: 100%; }
+    .popover td {
+      padding: 2px 0;
+      white-space: nowrap;
+      font-variant-numeric: tabular-nums;
+    }
+    .popover td.range { color: #9fa2ab; padding-right: 10px; }
+    .popover td.dur { font-weight: 600; padding-right: 10px; }
+    .popover td.why { color: #8a8d96; }
+    .popover tr.current td { color: #6ee7a0; }
+    .popover tr.current td.range, .popover tr.current td.why { color: #4fae77; }
+    .popover .note { margin: 6px 0 0; font-size: 11px; color: #8a8d96; }
+    .popover .total {
+      margin-top: 6px;
+      padding-top: 6px;
+      border-top: 1px solid #2c2d33;
+      font-weight: 600;
+      color: #e8e9ed;
+    }
     .status {
       position: fixed;
       right: 18px;
@@ -121,6 +184,41 @@ function ensureUi(): Ui {
   const clock = document.createElement('span')
   clock.className = 'clock'
 
+  const partials = document.createElement('button')
+  partials.className = 'partials'
+
+  const popover = document.createElement('div')
+  popover.className = 'popover'
+
+  // Hover abre; clique fixa (some só com outro clique). Ícone inerte sem parciais.
+  // Estado "fixado" vive em dataset para o render() poder resetar ao encerrar o timer.
+  let hideDelay: number | undefined
+  const showPopover = () => {
+    if (!timer || timer.segments.length === 0) return
+    clearTimeout(hideDelay)
+    renderPopover()
+    popover.classList.add('visible')
+  }
+  const hidePopover = () => {
+    if (popover.dataset.pinned === '1') return
+    hideDelay = window.setTimeout(() => popover.classList.remove('visible'), 200)
+  }
+  partials.addEventListener('mouseenter', showPopover)
+  partials.addEventListener('mouseleave', hidePopover)
+  popover.addEventListener('mouseenter', () => clearTimeout(hideDelay))
+  popover.addEventListener('mouseleave', hidePopover)
+  partials.addEventListener('click', () => {
+    if (!timer || timer.segments.length === 0) return
+    if (popover.dataset.pinned === '1') {
+      delete popover.dataset.pinned
+      clearTimeout(hideDelay)
+      popover.classList.remove('visible')
+    } else {
+      popover.dataset.pinned = '1'
+      showPopover()
+    }
+  })
+
   const button = document.createElement('button')
   button.addEventListener('click', () => void onToggle())
 
@@ -136,7 +234,14 @@ function ensureUi(): Ui {
   // Arrastar pelo corpo do card (botões continuam clicáveis).
   let dragOffset: { dx: number; dy: number } | null = null
   card.addEventListener('pointerdown', (e: PointerEvent) => {
-    if (e.target instanceof Node && (button.contains(e.target) || stopButton.contains(e.target))) return
+    if (
+      e.target instanceof Node &&
+      (button.contains(e.target) ||
+        stopButton.contains(e.target) ||
+        partials.contains(e.target) ||
+        popover.contains(e.target))
+    )
+      return
     const rect = card.getBoundingClientRect()
     dragOffset = { dx: e.clientX - rect.left, dy: e.clientY - rect.top }
     card.setPointerCapture(e.pointerId)
@@ -155,11 +260,11 @@ function ensureUi(): Ui {
     void chrome.storage.local.set({ widgetPos })
   })
 
-  card.append(issue, clock, button, stopButton)
+  card.append(issue, clock, partials, button, stopButton, popover)
   shadow.append(style, card, status)
   document.documentElement.append(host)
 
-  ui = { host, card, issue, clock, button, stopButton, status }
+  ui = { host, card, issue, clock, partials, popover, button, stopButton, status }
   return ui
 }
 
@@ -221,12 +326,28 @@ function syncPage(): void {
 }
 
 function render(): void {
-  const { card, issue, clock, button, stopButton } = ensureUi()
+  const { card, issue, clock, partials, popover, button, stopButton } = ensureUi()
 
   // Timer ativo → widget em qualquer página do Linear; senão só em issues.
   const visible = timer !== null || pageIdentifier !== null
   card.classList.toggle('visible', visible)
   if (!visible) return
+
+  // Ícone de parciais: verde e clicável quando o total é composto por
+  // segmentos anteriores; apagado quando o tempo corre sem nunca ter pausado.
+  const segmentCount = timer?.segments.length ?? 0
+  partials.textContent = String(segmentCount)
+  partials.classList.toggle('active', segmentCount > 0)
+  partials.title =
+    segmentCount > 0
+      ? `${segmentCount} ${segmentCount === 1 ? 'parcial compõe' : 'parciais compõem'} este total`
+      : 'Tempo contínuo — sem parciais'
+  if (segmentCount === 0) {
+    delete popover.dataset.pinned
+    popover.classList.remove('visible')
+  } else if (popover.classList.contains('visible')) {
+    renderPopover() // popover aberto acompanha o cronômetro ao vivo
+  }
 
   if (timer && timer.status === 'running') {
     issue.textContent = timer.identifier
@@ -261,6 +382,73 @@ function render(): void {
 
   if (Date.now() > flashUntil) {
     ensureUi().status.classList.remove('visible')
+  }
+}
+
+function fmtTime(ms: number): string {
+  const d = new Date(ms)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
+/** Duração curta: "38s", "12m", "1h 05m". */
+function fmtDur(ms: number): string {
+  const totalSeconds = Math.floor(ms / 1000)
+  if (totalSeconds < 60) return `${totalSeconds}s`
+  const totalMinutes = Math.floor(totalSeconds / 60)
+  const hours = Math.floor(totalMinutes / 60)
+  const minutes = totalMinutes % 60
+  if (hours === 0) return `${minutes}m`
+  return `${hours}h ${String(minutes).padStart(2, '0')}m`
+}
+
+/** Lista de parciais que compõem o total do cronômetro. */
+function renderPopover(): void {
+  const { popover } = ensureUi()
+  if (!timer) return
+
+  popover.textContent = ''
+
+  const heading = document.createElement('h4')
+  heading.textContent = `Parciais · ${timer.identifier}`
+
+  const table = document.createElement('table')
+  let hasUnposted = false
+  const addRow = (start: number, end: number, why: string, opts?: { current?: boolean; unposted?: boolean }) => {
+    const tr = document.createElement('tr')
+    if (opts?.current) tr.className = 'current'
+    const range = document.createElement('td')
+    range.className = 'range'
+    range.textContent = `${fmtTime(start)}–${opts?.current ? 'agora' : fmtTime(end)}`
+    const dur = document.createElement('td')
+    dur.className = 'dur'
+    dur.textContent = fmtDur(end - start) + (opts?.unposted ? ' *' : '')
+    const reason = document.createElement('td')
+    reason.className = 'why'
+    reason.textContent = why
+    tr.append(range, dur, reason)
+    table.append(tr)
+  }
+
+  for (const seg of timer.segments) {
+    if (!seg.posted) hasUnposted = true
+    addRow(seg.start, seg.end, PAUSE_LABEL[seg.reason] ?? seg.reason, { unposted: !seg.posted })
+  }
+  if (timer.status === 'running') {
+    addRow(timer.segmentStartedAt, Date.now(), 'em andamento', { current: true })
+  }
+
+  const total = document.createElement('div')
+  total.className = 'total'
+  total.textContent = `Total: ${fmtDur(timerElapsedMs(timer))}`
+
+  popover.append(heading, table, total)
+
+  if (hasUnposted) {
+    const note = document.createElement('p')
+    note.className = 'note'
+    note.textContent = '* abaixo de 1min: conta no total, mas não vira comentário na issue'
+    popover.append(note)
   }
 }
 

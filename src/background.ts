@@ -120,6 +120,7 @@ async function startTimer(identifier: string) {
     status: 'running',
     segmentStartedAt: now,
     accumulatedMs: 0,
+    segments: [],
     pausedAt: null,
     pauseReason: null
   }
@@ -158,8 +159,9 @@ async function pauseTimer(reason: PauseReason): Promise<TimerState | null> {
   const settings = await getSettings()
   const now = Date.now()
   const segmentMs = now - timer.segmentStartedAt
+  const posted = segmentMs >= MIN_SEGMENT_MS
   // Comentário primeiro: se a API falhar, segue rodando e o próximo tick tenta de novo.
-  if (segmentMs >= MIN_SEGMENT_MS) {
+  if (posted) {
     try {
       await postSegment(timer, settings, now)
     } catch {
@@ -170,6 +172,7 @@ async function pauseTimer(reason: PauseReason): Promise<TimerState | null> {
     ...timer,
     status: 'paused',
     accumulatedMs: timer.accumulatedMs + segmentMs,
+    segments: [...timer.segments, { start: timer.segmentStartedAt, end: now, reason, posted }],
     pausedAt: now,
     pauseReason: reason
   }
