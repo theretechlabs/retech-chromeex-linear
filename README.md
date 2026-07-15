@@ -48,6 +48,7 @@ Depois do seu play, o timer **pausa e retoma sem você fazer nada**:
 - O motivo do pause aparece no widget: `inativo`, `ausente`, `aba da issue fechada`, `rosto não reconhecido`, `pisque para a câmera 👁`.
 - **Voz** avisa quando pausa/retoma automaticamente (dá pra desligar no popup).
 - Segmentos menores que 1 minuto não geram comentário (não polui a Activity).
+- **Parciais no widget:** o numerozinho ao lado do cronômetro fica **verde** quando o total é composto por segmentos anteriores (houve pause/play). Passe o mouse (ou clique pra fixar) e veja cada parcial: horário, duração e motivo do pause. Apagado = tempo contínuo, sem nenhuma pausa.
 - O timer sobrevive a reload, troca de aba, fechar o navegador e sleep da máquina.
 - Badge no ícone mostra o tempo decorrido (laranja = pausado).
 
