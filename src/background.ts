@@ -30,6 +30,7 @@ type Message =
   | { type: 'GET_ENROLLMENT' }
   | { type: 'GET_AGENT_STATUS' }
   | { type: 'TEST_AGENT' }
+  | { type: 'TEST_VOICE'; sound: SoundName }
 
 chrome.runtime.onMessage.addListener((msg: Message, _sender, sendResponse) => {
   handle(msg)
@@ -44,12 +45,21 @@ async function handle(msg: Message): Promise<unknown> {
   switch (msg.type) {
     case 'GET_STATE':
       return { timer: await getTimer() }
-    case 'START':
-      return startTimer(msg.identifier)
-    case 'STOP':
-      return stopTimer()
-    case 'RESUME':
-      return { timer: await resumeTimer('manual') }
+    case 'START': {
+      const res = await startTimer(msg.identifier)
+      if (res.timer?.status === 'running') void playIfEnabled('resume')
+      return res
+    }
+    case 'STOP': {
+      const res = await stopTimer()
+      if (res.stopped) void playIfEnabled('pause')
+      return res
+    }
+    case 'RESUME': {
+      const timer = await resumeTimer('manual')
+      if (timer?.status === 'running') void playIfEnabled('resume')
+      return { timer }
+    }
     case 'ENROLL_FACE':
       return enrollFace(msg.image)
     case 'UNENROLL_FACE':
@@ -60,6 +70,9 @@ async function handle(msg: Message): Promise<unknown> {
       return getAgentStatus()
     case 'TEST_AGENT':
       return testAgent()
+    case 'TEST_VOICE':
+      // Caminho REAL do áudio (offscreen), com o erro exposto pro popup.
+      return playSound(msg.sound)
   }
 }
 
@@ -651,17 +664,23 @@ async function ensureOffscreen(): Promise<void> {
   })
   if (contexts.length > 0) return
   // Single-flight: só pode existir um offscreen document por extensão.
+  // Erro de createDocument PROPAGA — playSound captura e reporta.
   creatingOffscreen ??= chrome.offscreen
     .createDocument({
       url: 'src/offscreen/index.html',
       reasons: [chrome.offscreen.Reason.AUDIO_PLAYBACK],
       justification: 'Aviso sonoro ao pausar/retomar o timer automaticamente'
     })
-    .catch(() => undefined)
     .finally(() => {
       creatingOffscreen = null
     })
   await creatingOffscreen
+}
+
+/** Voz nas ações manuais (play/retomar/encerrar) respeitando o toggle. */
+async function playIfEnabled(sound: SoundName): Promise<void> {
+  const settings = await getSettings()
+  if (settings.soundEnabled) await playSound(sound)
 }
 
 /**
@@ -674,19 +693,27 @@ async function ensureOffscreen(): Promise<void> {
  * eles e quase todo som pega essa janela fria. Re-garante o offscreen a cada
  * tentativa (recria se fechou) e reenvia até o listener responder.
  */
-async function playSound(sound: SoundName): Promise<void> {
+async function playSound(sound: SoundName): Promise<{ ok: boolean; error?: string }> {
   const voices = await getCustomVoices()
   const src = voices[sound] ?? chrome.runtime.getURL(`sounds/${sound}.mp3`)
+  let lastError = 'sem tentativa'
   for (let attempt = 0; attempt < 15; attempt++) {
     try {
       await ensureOffscreen()
-      await chrome.runtime.sendMessage({ type: 'PLAY_SOUND', src })
-      return
-    } catch {
+      const res = (await chrome.runtime.sendMessage({ type: 'PLAY_SOUND', src })) as
+        | { played?: boolean; error?: string }
+        | undefined
+      // Offscreen respondeu: ou tocou, ou o play() falhou lá dentro (sem retry —
+      // repetir não conserta mp3 inválido/autoplay bloqueado).
+      if (res?.played) return { ok: true }
+      return { ok: false, error: res?.error ?? 'offscreen não confirmou o play (resposta vazia)' }
+    } catch (e) {
       // Offscreen ainda não pronto (ou fechou): espera e tenta de novo.
+      lastError = e instanceof Error ? e.message : String(e)
       await new Promise((resolve) => setTimeout(resolve, 100))
     }
   }
+  return { ok: false, error: `offscreen não respondeu após 15 tentativas: ${lastError}` }
 }
 
 // ---------------------------------------------------------------------------
