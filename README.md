@@ -93,6 +93,7 @@ Privacidade: tudo roda 100% local. Nenhuma imagem sai da máquina nem fica em di
 | Timer pausou e não volta | Veja o motivo no widget. Aba da issue fechada? Reabra. Agente caiu? O pause por câmera deixa de valer sozinho (idle e aba continuam). |
 | Popup mostra "Agente não instalado" | Rode o comando de instalação que o próprio popup mostra (botão copiar), **reinicie o Chrome** e clique em "Testar conexão". |
 | Sem som no pause/play | Toggle "Tocar som" no popup. Som só toca em pause/retomada **automáticos** — ações manuais são mudas. |
+| Quero a minha própria voz nos avisos | Popup → "Vozes dos avisos (MP3)": suba um MP3 (máx 1 MB) pra Pausa, Retomada e/ou Rosto não reconhecido. Fica salvo só no seu Chrome; "Padrão" volta pro mp3 bundlado. |
 
 ---
 

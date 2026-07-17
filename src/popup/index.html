@@ -121,6 +121,13 @@
           <input type="file" id="facePhoto" accept="image/*" class="hidden" />
           <small>Só o rosto cadastrado mantém o timer rodando. Exige o agente de câmera ativo.</small>
         </div>
+
+        <div id="voice-custom" class="voice-custom">
+          <span class="face-title">Vozes dos avisos (MP3)</span>
+          <div id="voice-list"></div>
+          <input type="file" id="voiceFile" accept="audio/mpeg,.mp3" class="hidden" />
+          <small>Troque o áudio de cada aviso por um MP3 seu. Máx 1&nbsp;MB por arquivo. Vazio = voz padrão.</small>
+        </div>
       </fieldset>
 
       <button type="submit" id="save-btn">Salvar</button>
