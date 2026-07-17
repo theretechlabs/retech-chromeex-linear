@@ -10,11 +10,14 @@ publica apenas booleanos de presença:
      "recognized": true, "ts": ...}
 
 Liveness (anti-spoofing passivo): usa o FaceLandmarker do MediaPipe (API
-tasks) para medir os blendshapes de piscada (eyeBlinkLeft/Right). Rosto só
-conta como presente se **piscou** nos últimos --blink-window segundos — uma
-foto (impressa ou na tela do celular) tem rosto mas nunca pisca, então não
-segura o timer. Humanos piscam ~15-20x/min; até olhando fixo pra tela ficam
-em ~4-7x/min, então a janela padrão de 20s é suficiente.
+tasks) para medir os blendshapes de piscada (eyeBlinkLeft/Right). A piscada
+é prova de ENTRADA, não exigência periódica: piscou uma vez, a prova de vida
+fica valendo enquanto o rosto permanecer continuamente na câmera (latch).
+Uma foto (impressa ou na tela do celular) tem rosto mas nunca pisca, então
+não passa da entrada — e não há como trocar o dev pela foto sem o rosto
+sumir por mais de REARM_SECONDS, o que zera o latch e exige piscada nova.
+Lendo um doc sem piscar (leitura suprime a piscada pra ~4x/min) ou olhando
+o monitor ao lado (yaw degrada o blendshape), o timer não cai mais.
 
 Re-arm: se o rosto some por mais de REARM_SECONDS e reaparece, os créditos de
 piscada e de reconhecimento são zerados. Se a presença ainda estava de pé
@@ -57,7 +60,7 @@ Transportes:
 
 Uso:
     python presence_agent.py [--port 8998] [--camera 0] [--grace 15]
-                             [--blink-window 20] [--no-liveness]
+                             [--no-liveness]
                              [--no-recognition] [--match-window 10]
                              [--recognition-threshold 0.363]
                              [--interval 0.1] [--show]
@@ -100,7 +103,10 @@ CACHE_DIR = Path(
     or Path.home() / ".cache" / "retech-presence-agent"
 )
 MODEL_CACHE = CACHE_DIR / "face_landmarker.task"
-BLINK_THRESHOLD = 0.5  # score de blendshape acima disso = olho fechado
+# Olhando de lado (monitor secundário) o blendshape perde amplitude e a
+# piscada real não cruzava 0.5; foto continua barrada — score estático nunca
+# gera a transição baixo→alto que conta como piscada.
+BLINK_THRESHOLD = 0.35  # score de blendshape acima disso = olho fechado
 REARM_SECONDS = 3.0  # rosto sumiu por mais que isso → nova piscada obrigatória
 REARM_BLINK_GRACE = 5.0  # carência p/ piscar após o re-arm sem derrubar presença
 
@@ -366,7 +372,8 @@ def build_detector(args: argparse.Namespace) -> HaarDetector | LandmarkerDetecto
         block_telemetry()
         detector = LandmarkerDetector(model)
         log.info(
-            "Liveness LIGADO: presença exige piscada a cada %.0fs", args.blink_window
+            "Liveness LIGADO: piscada exigida na entrada e após ausência >%.0fs",
+            REARM_SECONDS,
         )
         return detector
     except Exception as e:  # mediapipe ausente, sem rede p/ modelo, etc.
@@ -503,11 +510,9 @@ async def detection_loop(
         # Presença = rosto no grace E prova de vida na janela E rosto cadastrado
         # reconhecido na janela (quando há cadastro).
         face_ok = bool(last_face_at) and (now - last_face_at) <= args.grace
-        live_ok = (
-            not detector.liveness
-            or (bool(last_blink_at) and (now - last_blink_at) <= args.blink_window)
-            or now < rearm_deadline
-        )
+        # Latch: piscada é prova de entrada. Só o re-arm (rosto sumiu por mais
+        # de REARM_SECONDS) zera last_blink_at e volta a exigir piscada.
+        live_ok = not detector.liveness or bool(last_blink_at) or now < rearm_deadline
         match_ok = (
             not enforce_match
             or (bool(state.last_match_at) and (now - state.last_match_at) <= args.match_window)
@@ -758,7 +763,8 @@ def main() -> None:
     parser.add_argument("--grace", type=float, default=15.0,
                         help="segundos sem rosto até considerar ausente (default 15)")
     parser.add_argument("--blink-window", type=float, default=20.0,
-                        help="segundos sem piscada até considerar não-vivo (default 20)")
+                        help="OBSOLETO (ignorado desde v0.4.1): piscada agora é prova de "
+                             "entrada com latch, não exigência periódica")
     parser.add_argument("--no-liveness", action="store_true",
                         help="desliga a prova de vida (volta a aceitar rosto estático)")
     parser.add_argument("--no-recognition", action="store_true",
