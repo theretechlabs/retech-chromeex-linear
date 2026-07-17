@@ -8,7 +8,8 @@ Coloque aqui os áudios de voz tocados nas transições automáticas do timer:
   bloqueado ou auto-pause por rosto não reconhecido)
 
 Sem os arquivos, o aviso sonoro é um no-op silencioso (nada quebra).
-Ações manuais (Encerrar/Retomar pelo widget ou popup) não tocam som.
+Ações manuais também tocam: play/retomar usa `resume.mp3` e Encerrar usa
+`pause.mp3` (respeitando o toggle "Tocar som").
 
 Estes são os **padrões bundlados**. Cada dev pode sobrescrever qualquer um
 deles pelo popup ("Vozes dos avisos (MP3)") sem tocar no repo — o MP3 fica

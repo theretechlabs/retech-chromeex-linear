@@ -44,12 +44,21 @@ async function handle(msg: Message): Promise<unknown> {
   switch (msg.type) {
     case 'GET_STATE':
       return { timer: await getTimer() }
-    case 'START':
-      return startTimer(msg.identifier)
-    case 'STOP':
-      return stopTimer()
-    case 'RESUME':
-      return { timer: await resumeTimer('manual') }
+    case 'START': {
+      const res = await startTimer(msg.identifier)
+      if (res.timer?.status === 'running') void playIfEnabled('resume')
+      return res
+    }
+    case 'STOP': {
+      const res = await stopTimer()
+      if (res.stopped) void playIfEnabled('pause')
+      return res
+    }
+    case 'RESUME': {
+      const timer = await resumeTimer('manual')
+      if (timer?.status === 'running') void playIfEnabled('resume')
+      return { timer }
+    }
     case 'ENROLL_FACE':
       return enrollFace(msg.image)
     case 'UNENROLL_FACE':
@@ -662,6 +671,12 @@ async function ensureOffscreen(): Promise<void> {
       creatingOffscreen = null
     })
   await creatingOffscreen
+}
+
+/** Voz nas ações manuais (play/retomar/encerrar) respeitando o toggle. */
+async function playIfEnabled(sound: SoundName): Promise<void> {
+  const settings = await getSettings()
+  if (settings.soundEnabled) await playSound(sound)
 }
 
 /**
