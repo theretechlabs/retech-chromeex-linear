@@ -303,10 +303,20 @@ function renderVoices(): void {
     testBtn.type = 'button'
     testBtn.textContent = '▶'
     testBtn.title = 'Testar'
-    testBtn.addEventListener('click', () => {
-      const audio = new Audio(voiceSrc(name))
-      audio.volume = 0.8
-      void audio.play().catch(() => setFeedback('Sem áudio pra tocar (voz padrão ausente)', 'error'))
+    testBtn.addEventListener('click', async () => {
+      // Caminho REAL: background → offscreen. Tocar aqui no popup esconderia
+      // defeito no transporte (offscreen) que os avisos automáticos usam.
+      setFeedback('Tocando via extensão…')
+      try {
+        const res = (await chrome.runtime.sendMessage({ type: 'TEST_VOICE', sound: name })) as {
+          ok?: boolean
+          error?: string
+        }
+        if (res?.ok) setFeedback('✓ Voz tocada pelo caminho real (offscreen)', 'ok')
+        else setFeedback(`Falha no áudio: ${res?.error ?? 'desconhecida'}`, 'error')
+      } catch (e) {
+        setFeedback(e instanceof Error ? e.message : String(e), 'error')
+      }
     })
 
     const upBtn = document.createElement('button')
