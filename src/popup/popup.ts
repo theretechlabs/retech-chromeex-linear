@@ -1,13 +1,17 @@
 import { formatClock } from '../lib/format'
 import { whoAmI } from '../lib/linear'
 import {
+  getCustomVoices,
   getFaceEnrollment,
   getSettings,
   saveSettings,
+  setCustomVoice,
   setFaceEnrollment,
   timerElapsedMs,
+  type CustomVoices,
   type PauseReason,
   type Settings,
+  type SoundName,
   type TimerState
 } from '../lib/storage'
 
@@ -260,6 +264,118 @@ async function loadEnrollment(): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
+// Vozes personalizadas: cada dev sobe um MP3 por aviso; vazio = voz padrão.
+// ---------------------------------------------------------------------------
+
+const voiceFileInput = $<HTMLInputElement>('voiceFile')
+const voiceList = $<HTMLElement>('voice-list')
+
+const VOICES: { name: SoundName; label: string }[] = [
+  { name: 'pause', label: 'Pausa' },
+  { name: 'resume', label: 'Retomada' },
+  { name: 'unrecognized', label: 'Rosto não reconhecido' }
+]
+const MAX_VOICE_BYTES = 1_000_000
+
+let voices: CustomVoices = {}
+let uploadingVoice: SoundName | null = null
+
+/** dataURL do dev, ou o mp3 bundlado como fallback. */
+function voiceSrc(name: SoundName): string {
+  return voices[name] ?? chrome.runtime.getURL(`sounds/${name}.mp3`)
+}
+
+function renderVoices(): void {
+  voiceList.textContent = ''
+  for (const { name, label } of VOICES) {
+    const custom = Boolean(voices[name])
+
+    const info = document.createElement('div')
+    info.className = 'voice-info'
+    const strong = document.createElement('strong')
+    strong.textContent = label
+    const status = document.createElement('small')
+    status.className = custom ? 'voice-status is-custom' : 'voice-status'
+    status.textContent = custom ? 'personalizado' : 'padrão'
+    info.append(strong, status)
+
+    const testBtn = document.createElement('button')
+    testBtn.type = 'button'
+    testBtn.textContent = '▶'
+    testBtn.title = 'Testar'
+    testBtn.addEventListener('click', () => {
+      const audio = new Audio(voiceSrc(name))
+      audio.volume = 0.8
+      void audio.play().catch(() => setFeedback('Sem áudio pra tocar (voz padrão ausente)', 'error'))
+    })
+
+    const upBtn = document.createElement('button')
+    upBtn.type = 'button'
+    upBtn.textContent = custom ? 'Trocar' : 'Enviar'
+    upBtn.addEventListener('click', () => {
+      uploadingVoice = name
+      voiceFileInput.click()
+    })
+
+    const resetBtn = document.createElement('button')
+    resetBtn.type = 'button'
+    resetBtn.className = custom ? 'danger' : 'danger hidden'
+    resetBtn.textContent = 'Padrão'
+    resetBtn.addEventListener('click', async () => {
+      await setCustomVoice(name, null)
+      voices = await getCustomVoices()
+      renderVoices()
+      setFeedback(`✓ Voz de "${label}" restaurada ao padrão`, 'ok')
+    })
+
+    const actions = document.createElement('div')
+    actions.className = 'voice-actions'
+    actions.append(testBtn, upBtn, resetBtn)
+
+    const row = document.createElement('div')
+    row.className = 'voice-row'
+    row.append(info, actions)
+    voiceList.append(row)
+  }
+}
+
+voiceFileInput.addEventListener('change', async () => {
+  const file = voiceFileInput.files?.[0]
+  voiceFileInput.value = ''
+  const name = uploadingVoice
+  uploadingVoice = null
+  if (!file || !name) return
+  if (file.type !== 'audio/mpeg' && !file.name.toLowerCase().endsWith('.mp3')) {
+    setFeedback('O arquivo precisa ser um MP3', 'error')
+    return
+  }
+  if (file.size > MAX_VOICE_BYTES) {
+    setFeedback(`MP3 grande demais (${(file.size / 1e6).toFixed(1)} MB). Máx 1 MB.`, 'error')
+    return
+  }
+  setFeedback('Salvando voz…')
+  try {
+    const dataUrl = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve(reader.result as string)
+      reader.onerror = () => reject(reader.error ?? new Error('falha ao ler o arquivo'))
+      reader.readAsDataURL(file)
+    })
+    await setCustomVoice(name, dataUrl)
+    voices = await getCustomVoices()
+    renderVoices()
+    setFeedback('✓ Voz personalizada salva', 'ok')
+  } catch (e) {
+    setFeedback(e instanceof Error ? e.message : String(e), 'error')
+  }
+})
+
+async function loadVoices(): Promise<void> {
+  voices = await getCustomVoices()
+  renderVoices()
+}
+
+// ---------------------------------------------------------------------------
 // Setup do agente: status da conexão, comando de instalação, teste.
 // ---------------------------------------------------------------------------
 
@@ -380,5 +496,6 @@ $<HTMLButtonElement>('test-agent-btn').addEventListener('click', async () => {
 void loadSettings()
 void refreshTimer()
 void loadEnrollment()
+void loadVoices()
 void loadAgentStatus()
 setInterval(renderTimer, 1000)

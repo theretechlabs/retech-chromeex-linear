@@ -162,3 +162,22 @@ export async function setFaceEnrollment(enrollment: FaceEnrollment | null): Prom
     await chrome.storage.local.set({ faceEnrollment: enrollment })
   }
 }
+
+/** Avisos de voz da extensão — cada um tem um mp3 bundlado em public/sounds/. */
+export type SoundName = 'pause' | 'resume' | 'unrecognized'
+
+/** MP3 personalizado por aviso (dataURL). Ausente = usa o mp3 bundlado. */
+export type CustomVoices = Partial<Record<SoundName, string>>
+
+export async function getCustomVoices(): Promise<CustomVoices> {
+  const { customVoices } = await chrome.storage.local.get('customVoices')
+  return (customVoices as CustomVoices | undefined) ?? {}
+}
+
+/** Grava (dataURL) ou remove (null) o mp3 personalizado de um aviso. */
+export async function setCustomVoice(name: SoundName, dataUrl: string | null): Promise<void> {
+  const current = await getCustomVoices()
+  if (dataUrl === null) delete current[name]
+  else current[name] = dataUrl
+  await chrome.storage.local.set({ customVoices: current })
+}

@@ -306,3 +306,55 @@ a {
 #feedback.ok {
   color: #6ee7a0;
 }
+
+.voice-custom {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+#voice-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.voice-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 8px;
+  border: 1px solid #2c2d33;
+  border-radius: 6px;
+}
+
+.voice-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.voice-info strong {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.voice-status {
+  font-size: 11px;
+  color: #9fa2ab;
+}
+
+.voice-status.is-custom {
+  color: #6ee7a0;
+}
+
+.voice-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.voice-actions button {
+  padding: 6px 10px;
+  font-size: 12px;
+}

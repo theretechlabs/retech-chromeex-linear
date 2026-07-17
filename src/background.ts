@@ -3,6 +3,7 @@ import { createComment, resolveIssue } from './lib/linear'
 import {
   clearTimer,
   getAgentNativeStatus,
+  getCustomVoices,
   getSettings,
   getTimer,
   setAgentNativeStatus,
@@ -10,6 +11,7 @@ import {
   timerElapsedMs,
   type PauseReason,
   type Settings,
+  type SoundName,
   type TimerState
 } from './lib/storage'
 
@@ -662,10 +664,13 @@ async function ensureOffscreen(): Promise<void> {
   await creatingOffscreen
 }
 
-async function playSound(sound: 'pause' | 'resume' | 'unrecognized'): Promise<void> {
+async function playSound(sound: SoundName): Promise<void> {
   try {
     await ensureOffscreen()
-    await chrome.runtime.sendMessage({ type: 'PLAY_SOUND', sound })
+    // Dev pode ter trocado o mp3; senão cai no bundlado public/sounds/<sound>.mp3.
+    const voices = await getCustomVoices()
+    const src = voices[sound] ?? chrome.runtime.getURL(`sounds/${sound}.mp3`)
+    await chrome.runtime.sendMessage({ type: 'PLAY_SOUND', src })
   } catch {
     // Sem offscreen/sem mp3 não pode afetar o timer.
   }
