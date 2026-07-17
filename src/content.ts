@@ -402,6 +402,23 @@ function fmtDur(ms: number): string {
   return `${hours}h ${String(minutes).padStart(2, '0')}m`
 }
 
+/**
+ * Duração com segundos, pro popover de parciais: "45s", "1m 47s", "1h 05m 20s".
+ * Mantém precisão de segundo pra soma das linhas fechar com o Total (fmtDur
+ * trunca minuto e faria as parciais parecerem não somar).
+ */
+function fmtDurPrecise(ms: number): string {
+  const totalSeconds = Math.floor(ms / 1000)
+  if (totalSeconds < 60) return `${totalSeconds}s`
+  const seconds = totalSeconds % 60
+  const totalMinutes = Math.floor(totalSeconds / 60)
+  const hours = Math.floor(totalMinutes / 60)
+  const minutes = totalMinutes % 60
+  const s = `${String(seconds).padStart(2, '0')}s`
+  if (hours === 0) return `${minutes}m ${s}`
+  return `${hours}h ${String(minutes).padStart(2, '0')}m ${s}`
+}
+
 /** Lista de parciais que compõem o total do cronômetro. */
 function renderPopover(): void {
   const { popover } = ensureUi()
@@ -422,7 +439,7 @@ function renderPopover(): void {
     range.textContent = `${fmtTime(start)}–${opts?.current ? 'agora' : fmtTime(end)}`
     const dur = document.createElement('td')
     dur.className = 'dur'
-    dur.textContent = fmtDur(end - start) + (opts?.unposted ? ' *' : '')
+    dur.textContent = fmtDurPrecise(end - start) + (opts?.unposted ? ' *' : '')
     const reason = document.createElement('td')
     reason.className = 'why'
     reason.textContent = why
@@ -440,7 +457,7 @@ function renderPopover(): void {
 
   const total = document.createElement('div')
   total.className = 'total'
-  total.textContent = `Total: ${fmtDur(timerElapsedMs(timer))}`
+  total.textContent = `Total: ${fmtDurPrecise(timerElapsedMs(timer))}`
 
   popover.append(heading, table, total)
 
