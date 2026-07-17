@@ -664,15 +664,28 @@ async function ensureOffscreen(): Promise<void> {
   await creatingOffscreen
 }
 
+/**
+ * Toca um aviso no offscreen. Dev pode ter trocado o mp3; senão cai no
+ * bundlado public/sounds/<sound>.mp3.
+ *
+ * Retry porque logo após createDocument o offscreen existe mas o módulo dele
+ * ainda não rodou o addListener — sendMessage rejeita com "Receiving end does
+ * not exist". Como os avisos ficam >30s apart, o Chrome fecha o offscreen entre
+ * eles e quase todo som pega essa janela fria. Re-garante o offscreen a cada
+ * tentativa (recria se fechou) e reenvia até o listener responder.
+ */
 async function playSound(sound: SoundName): Promise<void> {
-  try {
-    await ensureOffscreen()
-    // Dev pode ter trocado o mp3; senão cai no bundlado public/sounds/<sound>.mp3.
-    const voices = await getCustomVoices()
-    const src = voices[sound] ?? chrome.runtime.getURL(`sounds/${sound}.mp3`)
-    await chrome.runtime.sendMessage({ type: 'PLAY_SOUND', src })
-  } catch {
-    // Sem offscreen/sem mp3 não pode afetar o timer.
+  const voices = await getCustomVoices()
+  const src = voices[sound] ?? chrome.runtime.getURL(`sounds/${sound}.mp3`)
+  for (let attempt = 0; attempt < 15; attempt++) {
+    try {
+      await ensureOffscreen()
+      await chrome.runtime.sendMessage({ type: 'PLAY_SOUND', src })
+      return
+    } catch {
+      // Offscreen ainda não pronto (ou fechou): espera e tenta de novo.
+      await new Promise((resolve) => setTimeout(resolve, 100))
+    }
   }
 }
 
