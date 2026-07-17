@@ -84,7 +84,7 @@ Privacidade: tudo roda 100% local. Nenhuma imagem sai da máquina nem fica em di
 
 | Sintoma | Causa / solução |
 |---|---|
-| Widget mostra "pisque para a câmera 👁" | O agente está esperando sua piscada pra confirmar que é você (e não uma foto). Pisque olhando pra câmera — retoma em ~1–3s. |
+| Widget mostra "pisque para a câmera 👁" | O agente está esperando sua piscada pra confirmar que é você (e não uma foto). Só acontece no play ou quando seu rosto volta à câmera após sumir — trabalhando direto (lendo, olhando o outro monitor) não precisa ficar piscando. Pisque olhando pra câmera — retoma em ~1–3s. |
 | "Rosto não reconhecido" sendo você | Óculos/iluminação diferente da foto cadastrada. Reenvie uma foto nas condições da sua mesa, ou rode o agente com `--recognition-threshold 0.30` (menos rígido). |
 | Play manual bloqueado com "Rosto não reconhecido" | Olhe pra câmera e clique de novo. A verificação espera até 6s. |
 | Play bloqueado com "Cadastre seu rosto" | Com o agente ativo, o timer só inicia depois de cadastrar a foto de referência no popup — proposital, senão não cadastrar viraria bypass da verificação. |

@@ -9,9 +9,11 @@ alimenta o play/pause automático da extensão **Retech Linear Timer**.
   (MediaPipe FaceLandmarker) **100% local**.
 - **Liveness anti-spoofing:** uma foto (impressa ou na tela de um celular) tem
   rosto mas **nunca pisca**. O agente mede os blendshapes de piscada
-  (`eyeBlinkLeft/Right`) e só considera presente quem piscou nos últimos
-  `--blink-window` segundos (default 20 — humanos piscam 15-20x/min; até
-  olhando fixo pra tela ficam em 4-7x/min).
+  (`eyeBlinkLeft/Right`). A piscada é **prova de entrada, com latch**: piscou
+  uma vez, a prova de vida vale enquanto o rosto permanecer continuamente na
+  câmera — lendo um doc sem piscar ou olhando o monitor ao lado, o timer não
+  cai. Não dá pra trocar o dev por uma foto sem o rosto sumir por >3s, o que
+  zera o latch (re-arm) e exige piscada nova.
 - **Re-arm:** se o rosto some por >3s e reaparece, os créditos de piscada e de
   reconhecimento zeram. Presença ainda de pé (gap curto — desviou o olhar) →
   5s de carência pra não derrubar o dev real. Já **ausente** → sem carência:
@@ -29,9 +31,9 @@ alimenta o play/pause automático da extensão **Retech Linear Timer**.
   Haar. O re-arm zera o crédito de match igual ao de piscada. `--no-recognition`
   desliga; sem foto cadastrada, nada muda.
 - Publica só booleanos num WebSocket em `ws://127.0.0.1:8998`.
-- Rosto visto + piscada recente (+ rosto reconhecido, se cadastrado) →
-  `present: true`. Sem rosto por `--grace` segundos (default 15), rosto sem
-  piscada na janela, **ou** rosto não reconhecido → `present: false`.
+- Rosto visto + piscada na entrada (+ rosto reconhecido, se cadastrado) →
+  `present: true`. Sem rosto por `--grace` segundos (default 15), rosto que
+  voltou e ainda não piscou, **ou** rosto não reconhecido → `present: false`.
 - A extensão pausa o timer quando `present: false` e retoma quando `true`
   (combinado com a regra de inatividade de teclado/mouse e a aba da issue).
 - Sem MediaPipe/modelo disponível, cai para Haar cascade do OpenCV **sem**
