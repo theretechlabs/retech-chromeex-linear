@@ -34,6 +34,38 @@ export interface TimerState {
   pauseReason: PauseReason | null
 }
 
+/** Perfil de mesa: quanto tempo a câmera pode não ver o rosto antes de pausar. */
+export type DeskProfile = 'frontal' | 'lateral' | 'extrema' | 'custom'
+
+/** Tolerâncias enviadas ao agente via mensagem `configure` (segundos). */
+export interface PresenceTuning {
+  /** Sem rosto por esse tempo → pause "ausente". */
+  graceSeconds: number
+  /** Gap de detecção maior que isso zera o latch de piscada. */
+  rearmSeconds: number
+  /** Carência pra piscar após o re-arm sem derrubar a presença. */
+  blinkGraceSeconds: number
+}
+
+/**
+ * Presets por layout físico. rearm = grace de propósito: gap menor que o
+ * grace não re-arma (olhada ao monitor lateral não vira pause "pisque"), e
+ * gap maior já pausou como "ausente" — cuja volta exige piscada sem carência.
+ * A segurança não escala com o dial: piscada na entrada/volta, SFace 1x/s e
+ * idle (5min) valem em todos os perfis.
+ */
+export const DESK_PROFILES: Record<Exclude<DeskProfile, 'custom'>, PresenceTuning> = {
+  frontal: { graceSeconds: 15, rearmSeconds: 15, blinkGraceSeconds: 12 },
+  lateral: { graceSeconds: 45, rearmSeconds: 45, blinkGraceSeconds: 12 },
+  extrema: { graceSeconds: 90, rearmSeconds: 90, blinkGraceSeconds: 12 }
+}
+
+/** Tuning efetivo do perfil escolhido (custom usa os valores salvos). */
+export function resolveTuning(settings: Settings): PresenceTuning {
+  if (settings.deskProfile === 'custom') return settings.customTuning
+  return DESK_PROFILES[settings.deskProfile]
+}
+
 export interface Settings {
   apiKey: string
   webhookUrl: string
@@ -57,6 +89,10 @@ export interface Settings {
   agentPort: number
   /** Toca voz ao pausar/retomar automaticamente. */
   soundEnabled: boolean
+  /** Layout físico da mesa (calibra tolerâncias do agente de câmera). */
+  deskProfile: DeskProfile
+  /** Valores do perfil 'custom' (ignorado nos presets). */
+  customTuning: PresenceTuning
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -70,7 +106,9 @@ export const DEFAULT_SETTINGS: Settings = {
   agentEnabled: false,
   agentTransport: 'auto',
   agentPort: 8998,
-  soundEnabled: true
+  soundEnabled: true,
+  deskProfile: 'frontal',
+  customTuning: { ...DESK_PROFILES.frontal }
 }
 
 /** Situação do host nativo, escrita pelo background e lida pelo popup. */

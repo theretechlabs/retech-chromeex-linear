@@ -1,6 +1,7 @@
 import { formatClock } from '../lib/format'
 import { whoAmI } from '../lib/linear'
 import {
+  DESK_PROFILES,
   getCustomVoices,
   getFaceEnrollment,
   getSettings,
@@ -9,6 +10,7 @@ import {
   setFaceEnrollment,
   timerElapsedMs,
   type CustomVoices,
+  type DeskProfile,
   type PauseReason,
   type Settings,
   type SoundName,
@@ -74,11 +76,67 @@ async function loadSettings(): Promise<void> {
   agentPortInput.value = String(s.agentPort)
   agentPortInput.disabled = s.agentTransport === 'native'
   soundEnabledInput.checked = s.soundEnabled
+  deskProfile = s.deskProfile
+  tunGraceInput.value = String(s.customTuning.graceSeconds)
+  tunRearmInput.value = String(s.customTuning.rearmSeconds)
+  tunBlinkGraceInput.value = String(s.customTuning.blinkGraceSeconds)
+  renderDeskCards()
 }
 
 agentTransportSelect.addEventListener('change', () => {
   agentPortInput.disabled = agentTransportSelect.value === 'native'
 })
+
+// ---------------------------------------------------------------------------
+// Setup da mesa: perfil de layout físico → tolerâncias do agente de câmera.
+// ---------------------------------------------------------------------------
+
+const deskCardsEl = $<HTMLElement>('desk-cards')
+const deskCaption = $<HTMLElement>('desk-caption')
+const deskCustomBlock = $<HTMLElement>('desk-custom')
+const tunGraceInput = $<HTMLInputElement>('tunGrace')
+const tunRearmInput = $<HTMLInputElement>('tunRearm')
+const tunBlinkGraceInput = $<HTMLInputElement>('tunBlinkGrace')
+
+let deskProfile: DeskProfile = 'frontal'
+
+const DESK_CAPTION: Record<DeskProfile, string> = {
+  frontal: `Monitor único, câmera de frente. Pausa "ausente" após ${DESK_PROFILES.frontal.graceSeconds}s sem rosto — o perfil mais rígido.`,
+  lateral: `Monitores dos lados, notebook/câmera no centro. Consultas longas às laterais não pausam; "ausente" só após ${DESK_PROFILES.lateral.graceSeconds}s sem rosto.`,
+  extrema: `Monitor principal longe da câmera (rosto quase sempre de lado). Tolerância máxima: "ausente" após ${DESK_PROFILES.extrema.graceSeconds}s sem rosto.`,
+  custom: 'Valores manuais. Em todos os perfis: piscada na entrada/volta, reconhecimento a cada 1s e inatividade de 5min continuam valendo.'
+}
+
+function renderDeskCards(): void {
+  for (const card of deskCardsEl.querySelectorAll<HTMLButtonElement>('.desk-card')) {
+    card.classList.toggle('selected', card.dataset.profile === deskProfile)
+  }
+  deskCaption.textContent = DESK_CAPTION[deskProfile]
+  deskCustomBlock.classList.toggle('hidden', deskProfile !== 'custom')
+}
+
+deskCardsEl.addEventListener('click', (event) => {
+  const card = (event.target as HTMLElement).closest<HTMLButtonElement>('.desk-card')
+  if (!card?.dataset.profile) return
+  deskProfile = card.dataset.profile as DeskProfile
+  renderDeskCards()
+})
+
+// Legenda acompanha o hover (popover leve, sem clipping do popup) e volta
+// pra descrição do selecionado quando o mouse sai.
+deskCardsEl.addEventListener('mouseover', (event) => {
+  const card = (event.target as HTMLElement).closest<HTMLButtonElement>('.desk-card')
+  if (card?.dataset.profile) deskCaption.textContent = DESK_CAPTION[card.dataset.profile as DeskProfile]
+})
+deskCardsEl.addEventListener('mouseleave', () => {
+  deskCaption.textContent = DESK_CAPTION[deskProfile]
+})
+
+function clampTuning(value: string, fallback: number, min: number, max: number): number {
+  const n = Number(value)
+  if (!Number.isFinite(n)) return fallback
+  return Math.min(max, Math.max(min, n))
+}
 
 async function refreshTimer(): Promise<void> {
   try {
@@ -133,7 +191,13 @@ $<HTMLFormElement>('settings-form').addEventListener('submit', async (event) => 
     agentEnabled: agentEnabledInput.checked,
     agentTransport: agentTransportSelect.value as Settings['agentTransport'],
     agentPort: Math.min(65535, Math.max(1024, Number(agentPortInput.value) || 8998)),
-    soundEnabled: soundEnabledInput.checked
+    soundEnabled: soundEnabledInput.checked,
+    deskProfile,
+    customTuning: {
+      graceSeconds: clampTuning(tunGraceInput.value, DESK_PROFILES.frontal.graceSeconds, 5, 300),
+      rearmSeconds: clampTuning(tunRearmInput.value, DESK_PROFILES.frontal.rearmSeconds, 1, 300),
+      blinkGraceSeconds: clampTuning(tunBlinkGraceInput.value, DESK_PROFILES.frontal.blinkGraceSeconds, 1, 60)
+    }
   }
 
   // Webhook em host próprio exige permissão opcional de origem.

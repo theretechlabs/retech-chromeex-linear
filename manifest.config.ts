@@ -3,7 +3,7 @@ import { defineManifest } from '@crxjs/vite-plugin'
 export default defineManifest({
   manifest_version: 3,
   name: 'Retech Linear Timer',
-  version: '0.5.2',
+  version: '0.6.0',
   // Chave pública que FIXA o ID da extensão (knbbiaoppepegcmdplehglahbdkghclh)
   // em qualquer instalação load-unpacked — o host manifest do native messaging
   // (agente de câmera) autoriza esse ID em allowed_origins. A chave privada

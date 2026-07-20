@@ -110,12 +110,13 @@ MODEL_CACHE = CACHE_DIR / "face_landmarker.task"
 # piscada real não cruzava 0.5; foto continua barrada — score estático nunca
 # gera a transição baixo→alto que conta como piscada.
 BLINK_THRESHOLD = 0.35  # score de blendshape acima disso = olho fechado
-# Defaults dos flags --rearm-seconds / --blink-grace. Calibrados pra setup com
-# monitores laterais: olhada de até 8s pro lado não zera o latch (yaw forte
-# derruba a detecção do YuNet e 3s re-armava em qualquer consulta ao monitor),
-# e 12s de carência cobrem ~2 ciclos naturais de piscada na volta. Segurança
-# de entrada inalterada: retorno após ausência real continua exigindo piscada.
-REARM_SECONDS = 8.0  # rosto sumiu por mais que isso → nova piscada obrigatória
+# Defaults dos flags --rearm-seconds / --blink-grace. REARM = grace (15s) de
+# propósito: gap menor que o grace não zera o latch (olhada ao monitor lateral
+# não gera pause "pisque"), e gap maior já virou pause "ausente" — cuja volta
+# exige piscada+match SEM carência. Ou seja, o único evento que re-arma é a
+# ausência real, e a prova de entrada continua intacta. A extensão pode
+# reajustar em runtime via mensagem "configure" (perfis de mesa do popup).
+REARM_SECONDS = 15.0  # rosto sumiu por mais que isso → nova piscada obrigatória
 REARM_BLINK_GRACE = 12.0  # carência p/ piscar após o re-arm sem derrubar presença
 
 # Reconhecimento facial (opencv_zoo, SHA pinado — repo usa Git LFS e o raw
@@ -574,11 +575,33 @@ async def detection_loop(
 
 
 async def handle_command(
-    msg: dict, state: PresenceState, recognizer: FaceRecognizer | None
+    msg: dict, state: PresenceState, recognizer: FaceRecognizer | None,
+    args: argparse.Namespace
 ) -> dict | None:
     """Comandos da extensão — mesmo protocolo nos dois transportes (WS e nativo)."""
     mtype = msg.get("type")
     mid = msg.get("id")
+    if mtype == "configure":
+        # Perfil de mesa do popup: no modo nativo o Chrome lança o agente com
+        # args fixos do host manifest, então o ajuste chega por mensagem e é
+        # aplicado em runtime (o loop lê args a cada frame). Valores limitados
+        # a [1, 300]s — o idle de teclado/mouse (5min) segue como teto real.
+        applied: dict[str, float] = {}
+        for key, attr in (
+            ("grace", "grace"),
+            ("rearm_seconds", "rearm_seconds"),
+            ("blink_grace", "blink_grace"),
+        ):
+            value = msg.get(key)
+            if isinstance(value, (int, float)) and 1.0 <= float(value) <= 300.0:
+                setattr(args, attr, float(value))
+                applied[key] = float(value)
+        if applied:
+            log.info(
+                "Perfil aplicado pela extensão: %s",
+                ", ".join(f"{k}={v:g}s" for k, v in applied.items()),
+            )
+        return {"type": "configure_result", "id": mid, "ok": True, "applied": applied}
     if mtype == "enroll":
         if recognizer is None:
             return {"type": "enroll_result", "id": mid, "ok": False,
@@ -699,7 +722,10 @@ class NativeTransport:
             # Escrita em thread: pipe pode bloquear se o Chrome engasgar.
             await asyncio.to_thread(self._write, frame)
 
-    async def run(self, state: PresenceState, recognizer: FaceRecognizer | None) -> None:
+    async def run(
+        self, state: PresenceState, recognizer: FaceRecognizer | None,
+        args: argparse.Namespace
+    ) -> None:
         loop = asyncio.get_running_loop()
         threading.Thread(target=self._reader, args=(loop,), daemon=True).start()
         await self.send(state.payload())  # snapshot inicial, igual ao WS
@@ -708,7 +734,7 @@ class NativeTransport:
             if msg is self._EOF:
                 log.info("stdin fechou (extensão desconectou); encerrando e liberando a câmera")
                 return
-            reply = await handle_command(msg, state, recognizer)
+            reply = await handle_command(msg, state, recognizer, args)
             if reply is not None:
                 await self.send(reply)
 
@@ -724,7 +750,7 @@ async def serve(args: argparse.Namespace) -> None:
         state.sinks.append(transport.send)
         log.info("Native messaging (stdio): processo vive enquanto a porta estiver aberta")
         detection = asyncio.create_task(detection_loop(state, args, recognizer))
-        stdio = asyncio.create_task(transport.run(state, recognizer))
+        stdio = asyncio.create_task(transport.run(state, recognizer, args))
         # Qualquer um terminar (stdin EOF ou crash do loop) derruba o processo:
         # agente sem câmera ou sem porta não tem o que fazer.
         done, pending = await asyncio.wait({detection, stdio}, return_when=asyncio.FIRST_COMPLETED)
@@ -749,7 +775,7 @@ async def serve(args: argparse.Namespace) -> None:
                     continue
                 if not isinstance(msg, dict):
                     continue
-                reply = await handle_command(msg, state, recognizer)
+                reply = await handle_command(msg, state, recognizer, args)
                 if reply is not None:
                     await websocket.send(json.dumps(reply))
         finally:
