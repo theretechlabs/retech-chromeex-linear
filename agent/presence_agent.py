@@ -109,6 +109,11 @@ MODEL_CACHE = CACHE_DIR / "face_landmarker.task"
 # Olhando de lado (monitor secundário) o blendshape perde amplitude e a
 # piscada real não cruzava 0.5; foto continua barrada — score estático nunca
 # gera a transição baixo→alto que conta como piscada.
+# Versão do agente, reportada à extensão (snapshot + ready) pra ela detectar
+# agente desatualizado e mandar rodar o instalador. Bumpar a cada mudança aqui
+# junto com REQUIRED_AGENT_VERSION em src/lib/storage.ts.
+AGENT_VERSION = "0.7.0"
+
 BLINK_THRESHOLD = 0.35  # score de blendshape acima disso = olho fechado
 # Defaults dos flags --rearm-seconds / --blink-grace. REARM = grace (15s) de
 # propósito: gap menor que o grace não zera o latch (olhada ao monitor lateral
@@ -416,6 +421,7 @@ class PresenceState:
             "faces": self.faces,
             "live": self.live,
             "recognized": self.recognized,
+            "version": AGENT_VERSION,
             "ts": time.time(),
         }
 
@@ -471,6 +477,7 @@ async def detection_loop(
                 "type": "ready",
                 "recognition": recognizer is not None,
                 "enrolled": bool(recognizer and recognizer.enrolled),
+                "version": AGENT_VERSION,
                 "ts": now,
             })
 

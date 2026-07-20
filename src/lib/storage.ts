@@ -34,6 +34,26 @@ export interface TimerState {
   pauseReason: PauseReason | null
 }
 
+/**
+ * Versão mínima do agente que esta extensão espera. Bumpar SÓ quando o agente
+ * mudar (junto com AGENT_VERSION em agent/presence_agent.py) — agente abaixo
+ * disso (ou sem campo `version`, pré-0.7.0) aparece como desatualizado no
+ * popup, com instrução de rodar o instalador.
+ */
+export const REQUIRED_AGENT_VERSION = '0.7.0'
+
+/** a < b em semver simples (major.minor.patch numéricos). */
+export function versionLessThan(a: string, b: string): boolean {
+  const pa = a.split('.').map(Number)
+  const pb = b.split('.').map(Number)
+  for (let i = 0; i < 3; i++) {
+    const da = pa[i] ?? 0
+    const db = pb[i] ?? 0
+    if (da !== db) return da < db
+  }
+  return false
+}
+
 /** Perfil de mesa: quanto tempo a câmera pode não ver o rosto antes de pausar. */
 export type DeskProfile = 'frontal' | 'lateral' | 'extrema' | 'custom'
 

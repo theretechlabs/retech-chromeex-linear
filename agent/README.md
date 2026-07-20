@@ -125,8 +125,12 @@ como heartbeat a cada ~20s — o heartbeat também mantém o service worker MV3 
 extensão acordado):
 
 ```json
-{"type": "presence", "present": true, "faces": 1, "live": true, "recognized": true, "ts": 1720900000.0}
+{"type": "presence", "present": true, "faces": 1, "live": true, "recognized": true, "version": "0.7.0", "ts": 1720900000.0}
 ```
+
+`version` (>=0.7.0) é a versão do agente — a extensão compara com a mínima
+esperada e avisa no popup quando o agente instalado está desatualizado
+(mensagem sem o campo = agente antigo → também acusa).
 
 `present` já embute prova de vida **e** reconhecimento — a extensão decide
 play/pause só por `present`. `recognized` é `null` quando não há rosto
