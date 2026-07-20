@@ -32,6 +32,12 @@ export interface TimerState {
   /** Epoch ms do pause atual; null quando rodando. */
   pausedAt: number | null
   pauseReason: PauseReason | null
+  /**
+   * Alvo do próximo lembrete em ms de tempo ATIVO (`timerElapsedMs`), não de
+   * relógio — pausas adiam o lembrete junto. Avança um período a cada disparo.
+   * Ausente em timers persistidos por versões antigas (primeiro período vale).
+   */
+  nextReminderAtMs?: number
 }
 
 /**
