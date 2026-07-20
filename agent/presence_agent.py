@@ -19,12 +19,15 @@ sumir por mais de REARM_SECONDS, o que zera o latch e exige piscada nova.
 Lendo um doc sem piscar (leitura suprime a piscada pra ~4x/min) ou olhando
 o monitor ao lado (yaw degrada o blendshape), o timer não cai mais.
 
-Re-arm: se o rosto some por mais de REARM_SECONDS e reaparece, os créditos de
-piscada e de reconhecimento são zerados. Se a presença ainda estava de pé
-(gap curto — dev desviou o olhar), há uma carência de REARM_BLINK_GRACE para
-não derrubar o dev real; se já estava AUSENTE, não há carência: o rosto que
-voltou só conta como presente DEPOIS de piscar e ser reconhecido — senão
-qualquer rosto retomaria o timer por alguns segundos sem verificação.
+Re-arm: se o rosto some por mais de REARM_SECONDS (--rearm-seconds, default
+8s) e reaparece, os créditos de piscada e de reconhecimento são zerados. Se a
+presença ainda estava de pé (gap curto — dev desviou o olhar), há uma carência
+de REARM_BLINK_GRACE (--blink-grace, default 12s) para não derrubar o dev
+real; se já estava AUSENTE, não há carência: o rosto que voltou só conta como
+presente DEPOIS de piscar e ser reconhecido — senão qualquer rosto retomaria
+o timer por alguns segundos sem verificação. Defaults calibrados pra setup
+com monitores laterais (yaw forte some da detecção): consulta curta ao
+monitor do lado não re-arma, e a volta tem tempo de piscada natural.
 
 Reconhecimento facial (verificação de identidade): a extensão cadastra uma
 foto de referência via WebSocket ({"type": "enroll", "image": base64}); o
@@ -107,8 +110,13 @@ MODEL_CACHE = CACHE_DIR / "face_landmarker.task"
 # piscada real não cruzava 0.5; foto continua barrada — score estático nunca
 # gera a transição baixo→alto que conta como piscada.
 BLINK_THRESHOLD = 0.35  # score de blendshape acima disso = olho fechado
-REARM_SECONDS = 3.0  # rosto sumiu por mais que isso → nova piscada obrigatória
-REARM_BLINK_GRACE = 5.0  # carência p/ piscar após o re-arm sem derrubar presença
+# Defaults dos flags --rearm-seconds / --blink-grace. Calibrados pra setup com
+# monitores laterais: olhada de até 8s pro lado não zera o latch (yaw forte
+# derruba a detecção do YuNet e 3s re-armava em qualquer consulta ao monitor),
+# e 12s de carência cobrem ~2 ciclos naturais de piscada na volta. Segurança
+# de entrada inalterada: retorno após ausência real continua exigindo piscada.
+REARM_SECONDS = 8.0  # rosto sumiu por mais que isso → nova piscada obrigatória
+REARM_BLINK_GRACE = 12.0  # carência p/ piscar após o re-arm sem derrubar presença
 
 # Reconhecimento facial (opencv_zoo, SHA pinado — repo usa Git LFS e o raw
 # redireciona para media.githubusercontent.com; pointer LFS tem ~130 bytes,
@@ -373,7 +381,7 @@ def build_detector(args: argparse.Namespace) -> HaarDetector | LandmarkerDetecto
         detector = LandmarkerDetector(model)
         log.info(
             "Liveness LIGADO: piscada exigida na entrada e após ausência >%.0fs",
-            REARM_SECONDS,
+            args.rearm_seconds,
         )
         return detector
     except Exception as e:  # mediapipe ausente, sem rede p/ modelo, etc.
@@ -472,7 +480,7 @@ async def detection_loop(
         if state.match_invalidated:
             state.match_invalidated = False
             state.last_match_at = 0.0
-            rearm_deadline = max(rearm_deadline, now + REARM_BLINK_GRACE)
+            rearm_deadline = max(rearm_deadline, now + args.blink_grace)
 
         faces, blinked = await asyncio.to_thread(detector.detect, frame)
         if faces > 0:
@@ -482,7 +490,7 @@ async def detection_loop(
             if (
                 (detector.liveness or enforce_match)
                 and last_face_at
-                and (now - last_face_at) > REARM_SECONDS
+                and (now - last_face_at) > args.rearm_seconds
             ):
                 last_blink_at = 0.0
                 state.last_match_at = 0.0
@@ -491,7 +499,7 @@ async def detection_loop(
                 # Já ausente (present false) não ganha carência: o rosto que
                 # voltou só conta DEPOIS de piscar e ser reconhecido — senão
                 # qualquer rosto retomaria o timer por 5s sem verificação.
-                rearm_deadline = now + REARM_BLINK_GRACE if state.present else 0.0
+                rearm_deadline = now + args.blink_grace if state.present else 0.0
                 log.info(
                     "Rosto voltou após %.0fs; aguardando prova de vida/reconhecimento%s",
                     now - last_face_at,
@@ -765,6 +773,12 @@ def main() -> None:
     parser.add_argument("--blink-window", type=float, default=20.0,
                         help="OBSOLETO (ignorado desde v0.4.1): piscada agora é prova de "
                              "entrada com latch, não exigência periódica")
+    parser.add_argument("--rearm-seconds", type=float, default=REARM_SECONDS,
+                        help="segundos sem rosto até zerar o latch e exigir piscada nova "
+                             f"na volta (default {REARM_SECONDS:g})")
+    parser.add_argument("--blink-grace", type=float, default=REARM_BLINK_GRACE,
+                        help="carência em segundos pra piscar após o re-arm sem derrubar "
+                             f"a presença (default {REARM_BLINK_GRACE:g})")
     parser.add_argument("--no-liveness", action="store_true",
                         help="desliga a prova de vida (volta a aceitar rosto estático)")
     parser.add_argument("--no-recognition", action="store_true",

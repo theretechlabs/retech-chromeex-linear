@@ -12,11 +12,12 @@ alimenta o play/pause automático da extensão **Retech Linear Timer**.
   (`eyeBlinkLeft/Right`). A piscada é **prova de entrada, com latch**: piscou
   uma vez, a prova de vida vale enquanto o rosto permanecer continuamente na
   câmera — lendo um doc sem piscar ou olhando o monitor ao lado, o timer não
-  cai. Não dá pra trocar o dev por uma foto sem o rosto sumir por >3s, o que
+  cai. Não dá pra trocar o dev por uma foto sem o rosto sumir por >8s, o que
   zera o latch (re-arm) e exige piscada nova.
-- **Re-arm:** se o rosto some por >3s e reaparece, os créditos de piscada e de
-  reconhecimento zeram. Presença ainda de pé (gap curto — desviou o olhar) →
-  5s de carência pra não derrubar o dev real. Já **ausente** → sem carência:
+- **Re-arm:** se o rosto some por >8s (`--rearm-seconds`) e reaparece, os
+  créditos de piscada e de reconhecimento zeram. Presença ainda de pé (gap
+  curto — desviou o olhar, consultou o monitor do lado) → 12s de carência
+  (`--blink-grace`) pra não derrubar o dev real. Já **ausente** → sem carência:
   o rosto que voltou só conta depois de piscar **e** ser reconhecido. Foto ou
   estranho colocados na ausência não ganham nem um segundo de presença.
 - **Reconhecimento facial (verificação de identidade):** o dev cadastra uma
@@ -94,7 +95,7 @@ pip install -r requirements.txt
 ## Uso (modo WebSocket)
 
 ```bash
-python presence_agent.py                    # defaults: porta 8998, câmera 0, grace 15s, blink-window 20s
+python presence_agent.py                    # defaults: porta 8998, câmera 0, grace 15s, rearm 8s, blink-grace 12s
 python presence_agent.py --show             # janela de preview para debug (q sai)
 python presence_agent.py --grace 30         # mais tolerante a olhar de lado
 python presence_agent.py --blink-window 40  # mais tolerante a olhar fixo sem piscar
@@ -154,5 +155,5 @@ O agente também aceita comandos (JSON, resposta só para quem pediu):
 ```
 
 A foto de enroll deve ter **exatamente um** rosto. Após enroll/unenroll o
-agente zera o crédito de match e abre ~5s de carência para a nova referência
-assumir sem flap de pause.
+agente zera o crédito de match e abre a carência do `--blink-grace` (~12s)
+para a nova referência assumir sem flap de pause.
