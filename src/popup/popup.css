@@ -307,6 +307,100 @@ a {
   color: #6ee7a0;
 }
 
+.desk-setup {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.desk-cards {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+}
+
+.desk-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 4px 6px;
+  background: none;
+  border: 1px solid #2c2d33;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.desk-card:hover {
+  border-color: #6e79d6;
+}
+
+.desk-card.selected {
+  border-color: #6e79d6;
+  background: rgba(110, 121, 214, 0.12);
+}
+
+.desk-card svg {
+  width: 100%;
+  height: 34px;
+}
+
+.desk-card small {
+  font-size: 10px;
+  color: #9fa2ab;
+  line-height: 1.1;
+  text-align: center;
+}
+
+.desk-card.selected small {
+  color: #c9cff5;
+}
+
+.desk-card .mon {
+  fill: none;
+  stroke: #7d818c;
+  stroke-width: 1.6;
+}
+
+.desk-card .mon.sel {
+  stroke: #a9b2e8;
+}
+
+.desk-card .cam {
+  fill: #6ee7a0;
+}
+
+.desk-card .dev {
+  fill: none;
+  stroke: #c8cad1;
+  stroke-width: 1.6;
+}
+
+.desk-card .slider {
+  stroke: #7d818c;
+  stroke-width: 1.6;
+}
+
+.desk-card .knob {
+  fill: #a9b2e8;
+}
+
+.desk-caption {
+  min-height: 26px;
+  color: #9fa2ab;
+  line-height: 1.35;
+}
+
+.desk-custom {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 8px;
+}
+
+.desk-custom label {
+  font-size: 11px;
+}
+
 .voice-custom {
   display: flex;
   flex-direction: column;

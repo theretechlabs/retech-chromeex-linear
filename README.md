@@ -74,6 +74,17 @@ Depois reinicie o Chrome. Na primeira execução o sistema pede permissão de c�
 
 **2. Ative na extensão**: popup → marque **"Usar agente de câmera"** → Salvar → **"Testar conexão"**.
 
+**2b. Escolha o "Setup da mesa"** (popup, cards com desenho): diz ao agente quanto tempo a câmera pode não ver seu rosto antes de pausar — calibrado pro seu layout físico:
+
+| Perfil | Sem rosto até pausar | Pra quem |
+|---|---|---|
+| **Frontal** | 15s | monitor único, câmera de frente (mais rígido) |
+| **Laterais** | 45s | monitores dos lados, notebook/câmera no centro |
+| **Câmera de lado** | 90s | monitor principal longe da câmera (rosto quase sempre de lado) |
+| **Personalizado** | manual | ajuste fino dos três parâmetros |
+
+A segurança **não** escala com o perfil: piscada na entrada e na volta de ausência, reconhecimento a cada 1s e inatividade de 5min valem em todos. A troca de perfil aplica na hora, mesmo com o timer rodando.
+
 **3. Cadastre seu rosto**: popup → **"Enviar foto de referência"** → escolha uma foto frontal, bem iluminada, só você nela.
 
 Privacidade: tudo roda 100% local. Nenhuma imagem sai da máquina nem fica em disco — a foto vira um código numérico irreversível (embedding) e é descartada. O LED da câmera aceso = timer rodando. Para remover: rode o script com `--uninstall`. Modo manual/debug (WebSocket) continua existindo: [agent/README.md](agent/README.md).
@@ -85,6 +96,7 @@ Privacidade: tudo roda 100% local. Nenhuma imagem sai da máquina nem fica em di
 | Sintoma | Causa / solução |
 |---|---|
 | Widget mostra "pisque para a câmera 👁" | O agente está esperando sua piscada pra confirmar que é você (e não uma foto). Só acontece no play ou quando seu rosto volta à câmera após sumir — trabalhando direto (lendo, olhando o outro monitor) não precisa ficar piscando. Pisque olhando pra câmera — retoma em ~1–3s. |
+| Timer pausa quando trabalho no monitor do lado | Escolha o **"Setup da mesa"** certo no popup (Laterais ou Câmera de lado) — aumenta a tolerância de ausência da câmera pro seu layout. Persistindo, o ideal é webcam externa centralizada entre os monitores. |
 | "Rosto não reconhecido" sendo você | Óculos/iluminação diferente da foto cadastrada. Reenvie uma foto nas condições da sua mesa, ou rode o agente com `--recognition-threshold 0.30` (menos rígido). |
 | Play manual bloqueado com "Rosto não reconhecido" | Olhe pra câmera e clique de novo. A verificação espera até 6s. |
 | Play bloqueado com "Cadastre seu rosto" | Com o agente ativo, o timer só inicia depois de cadastrar a foto de referência no popup — proposital, senão não cadastrar viraria bypass da verificação. |

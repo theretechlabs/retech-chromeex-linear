@@ -6,6 +6,7 @@ import {
   getCustomVoices,
   getSettings,
   getTimer,
+  resolveTuning,
   setAgentNativeStatus,
   setTimer,
   timerElapsedMs,
@@ -343,6 +344,8 @@ chrome.storage.onChanged.addListener((changes, area) => {
     // e acende a câmera — salvar settings não pode ligar a câmera à toa.
     if (!settings.agentEnabled) closeAgentConnection()
     else if (await getTimer()) ensureAgentConnection(settings)
+    // Troca de perfil de mesa com agente já de pé vale na hora.
+    if (agentReady) void pushAgentTuning()
     void evaluatePresence()
   })
 })
@@ -389,6 +392,24 @@ function markAgentReady(): void {
   agentReady = true
   for (const waiter of agentReadyWaiters) waiter(true)
   agentReadyWaiters = []
+  // Perfil de mesa: no modo nativo o Chrome lança o agente com args fixos,
+  // então as tolerâncias vão por mensagem assim que ele responde.
+  void pushAgentTuning()
+}
+
+/** Envia o tuning do perfil de mesa ao agente conectado (fire-and-forget). */
+async function pushAgentTuning(): Promise<void> {
+  try {
+    const tuning = resolveTuning(await getSettings())
+    sendToAgent({
+      type: 'configure',
+      grace: tuning.graceSeconds,
+      rearm_seconds: tuning.rearmSeconds,
+      blink_grace: tuning.blinkGraceSeconds
+    })
+  } catch {
+    // Sem conexão (ou agente antigo sem 'configure'): defaults do agente valem.
+  }
 }
 
 function waitAgentReady(timeoutMs: number): Promise<void> {

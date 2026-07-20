@@ -106,6 +106,68 @@
           <span>Tocar som ao pausar/retomar automaticamente</span>
         </label>
 
+        <div id="desk-setup" class="desk-setup">
+          <span class="face-title">Setup da mesa</span>
+          <div id="desk-cards" class="desk-cards">
+            <button type="button" class="desk-card" data-profile="frontal" aria-label="Frontal">
+              <svg viewBox="0 0 64 40" aria-hidden="true">
+                <rect x="20" y="4" width="24" height="15" rx="2" class="mon sel"/>
+                <circle cx="32" cy="6.5" r="1.6" class="cam"/>
+                <circle cx="32" cy="30" r="5" class="dev"/>
+                <path d="M24 40 a8 8 0 0 1 16 0" class="dev"/>
+              </svg>
+              <small>Frontal</small>
+            </button>
+            <button type="button" class="desk-card" data-profile="lateral" aria-label="Laterais + câmera no centro">
+              <svg viewBox="0 0 64 40" aria-hidden="true">
+                <rect x="1" y="5" width="17" height="13" rx="2" transform="rotate(8 9 11)" class="mon"/>
+                <rect x="46" y="5" width="17" height="13" rx="2" transform="rotate(-8 55 11)" class="mon"/>
+                <rect x="24" y="7" width="16" height="11" rx="2" class="mon sel"/>
+                <circle cx="32" cy="9" r="1.6" class="cam"/>
+                <circle cx="32" cy="30" r="5" class="dev"/>
+                <path d="M24 40 a8 8 0 0 1 16 0" class="dev"/>
+              </svg>
+              <small>Laterais</small>
+            </button>
+            <button type="button" class="desk-card" data-profile="extrema" aria-label="Câmera de lado">
+              <svg viewBox="0 0 64 40" aria-hidden="true">
+                <rect x="6" y="4" width="26" height="16" rx="2" class="mon sel"/>
+                <rect x="44" y="7" width="14" height="10" rx="2" class="mon"/>
+                <circle cx="51" cy="9" r="1.6" class="cam"/>
+                <circle cx="19" cy="30" r="5" class="dev"/>
+                <path d="M11 40 a8 8 0 0 1 16 0" class="dev"/>
+              </svg>
+              <small>Câmera de lado</small>
+            </button>
+            <button type="button" class="desk-card" data-profile="custom" aria-label="Personalizado">
+              <svg viewBox="0 0 64 40" aria-hidden="true">
+                <line x1="14" y1="10" x2="50" y2="10" class="slider"/>
+                <circle cx="26" cy="10" r="3.5" class="knob"/>
+                <line x1="14" y1="21" x2="50" y2="21" class="slider"/>
+                <circle cx="42" cy="21" r="3.5" class="knob"/>
+                <line x1="14" y1="32" x2="50" y2="32" class="slider"/>
+                <circle cx="20" cy="32" r="3.5" class="knob"/>
+              </svg>
+              <small>Personalizado</small>
+            </button>
+          </div>
+          <small id="desk-caption" class="desk-caption"></small>
+          <div id="desk-custom" class="desk-custom hidden">
+            <label>
+              Sem rosto até pausar (s)
+              <input type="number" id="tunGrace" min="5" max="300" step="5" />
+            </label>
+            <label>
+              Gap que zera a piscada (s)
+              <input type="number" id="tunRearm" min="1" max="300" step="1" />
+            </label>
+            <label>
+              Carência pra piscar (s)
+              <input type="number" id="tunBlinkGrace" min="1" max="60" step="1" />
+            </label>
+          </div>
+        </div>
+
         <div id="face-enroll" class="face-enroll">
           <span class="face-title">Reconhecimento facial</span>
           <div class="face-row">
