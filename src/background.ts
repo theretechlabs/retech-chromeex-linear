@@ -19,7 +19,8 @@ import {
 } from './lib/storage'
 
 const BADGE_ALARM = 'badge'
-const REMINDER_ALARM = 'reminder'
+/** Alarm legado (wall-clock); só existe para limpeza em quem atualizou. */
+const LEGACY_REMINDER_ALARM = 'reminder'
 /** Segmento mais curto que isso não vira comentário no Linear (evita spam), mas conta no total local. */
 const MIN_SEGMENT_MS = 60_000
 
@@ -150,7 +151,8 @@ async function startTimer(identifier: string) {
     accumulatedMs: 0,
     segments: [],
     pausedAt: null,
-    pauseReason: null
+    pauseReason: null,
+    nextReminderAtMs: reminderPeriodMs(settings)
   }
   await setTimer(timer)
   await scheduleAlarms(settings)
@@ -175,7 +177,7 @@ async function stopTimer() {
   // Pausado: segmento atual já foi registrado no momento do pause.
   await clearTimer()
   await chrome.alarms.clear(BADGE_ALARM)
-  await chrome.alarms.clear(REMINDER_ALARM)
+  await chrome.alarms.clear(LEGACY_REMINDER_ALARM)
   closeAgentConnection()
   await updateBadge()
   return { stopped: timer, durationMs: totalMs }
@@ -757,25 +759,30 @@ async function playSound(sound: SoundName): Promise<{ ok: boolean; error?: strin
 
 // ---------------------------------------------------------------------------
 
-async function scheduleAlarms(settings: Settings): Promise<void> {
-  const period = Math.max(5, settings.reminderMinutes || 60)
+function reminderPeriodMs(settings: Settings): number {
+  return Math.max(5, settings.reminderMinutes || 60) * 60_000
+}
+
+async function scheduleAlarms(_settings: Settings): Promise<void> {
   chrome.alarms.create(BADGE_ALARM, { periodInMinutes: 1 })
-  chrome.alarms.create(REMINDER_ALARM, {
-    delayInMinutes: period,
-    periodInMinutes: period
-  })
+  // Lembrete não tem mais alarm próprio: era wall-clock e ignorava pausas
+  // (disparava "60 min" com bem menos tempo trabalhado). Agora o tick do badge
+  // compara tempo ATIVO com timer.nextReminderAtMs. Clear = migração.
+  await chrome.alarms.clear(LEGACY_REMINDER_ALARM)
 }
 
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === BADGE_ALARM) {
-    void updateBadge()
-    void evaluatePresence()
-    // Reconecta o agente se caiu (service worker pode ter reiniciado).
-    void getTimer().then(async (timer) => {
+    void (async () => {
+      await updateBadge()
+      // Presença primeiro: pause/resume deste tick vale para o lembrete.
+      await evaluatePresence()
+      await checkReminder()
+      // Reconecta o agente se caiu (service worker pode ter reiniciado).
+      const timer = await getTimer()
       if (timer) ensureAgentConnection(await getSettings())
-    })
+    })()
   }
-  if (alarm.name === REMINDER_ALARM) void sendReminder()
   if (alarm.name === AGENT_IDLE_ALARM) {
     // Uso avulso do agente (enroll/teste) sem timer: solta a câmera.
     void getTimer().then((timer) => {
@@ -801,11 +808,38 @@ async function updateBadge(): Promise<void> {
   })
 }
 
-async function sendReminder(): Promise<void> {
+/**
+ * Dispara o lembrete quando o tempo ATIVO cruza o alvo — imune a pausas por
+ * definição. Roda no tick de 1 min do badge, então o disparo tem granularidade
+ * de ~1 min após o alvo.
+ */
+async function checkReminder(): Promise<void> {
   const timer = await getTimer()
   if (!timer || timer.status !== 'running') return
   const settings = await getSettings()
+  const periodMs = reminderPeriodMs(settings)
   const elapsedMs = timerElapsedMs(timer)
+  // Timer de versão antiga não tem o campo: primeiro período vale.
+  let target = timer.nextReminderAtMs ?? periodMs
+  // Dev diminuiu o intervalo nos settings com timer rodando: reaproxima o alvo.
+  if (target - elapsedMs > periodMs) target = elapsedMs + periodMs
+  if (elapsedMs < target) {
+    if (target !== timer.nextReminderAtMs) await setTimer({ ...timer, nextReminderAtMs: target })
+    return
+  }
+  let next = target
+  while (next <= elapsedMs) next += periodMs
+  // Persiste ANTES de enviar: SW pode morrer no meio e reenviar é pior que pular.
+  // Releitura fecha a janela contra um pause concorrente (idle event) entre o
+  // getTimer lá em cima e agora — não pode ressuscitar um timer já pausado.
+  const fresh = await getTimer()
+  if (!fresh || fresh.status !== 'running') return
+  await setTimer({ ...fresh, nextReminderAtMs: next })
+  await sendReminder(fresh, elapsedMs)
+}
+
+async function sendReminder(timer: TimerState, elapsedMs: number): Promise<void> {
+  const settings = await getSettings()
   const elapsed = formatElapsed(elapsedMs)
 
   chrome.notifications.create({
