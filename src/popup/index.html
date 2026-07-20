@@ -153,16 +153,16 @@
           </div>
           <small id="desk-caption" class="desk-caption"></small>
           <div id="desk-custom" class="desk-custom hidden">
-            <label>
-              Sem rosto até pausar (s)
+            <label data-tip="Quanto tempo a câmera pode ficar sem ver rosto NENHUM antes de pausar como 'ausente'. É a tolerância pra trabalhar olhando monitores laterais. Perfis prontos: 15 / 45 / 90s.">
+              <span class="tun-term">Sem rosto até pausar (s)</span>
               <input type="number" id="tunGrace" min="5" max="300" step="5" />
             </label>
-            <label>
-              Gap que zera a piscada (s)
+            <label data-tip="Rosto sumiu por mais que isso → a prova de piscada é zerada e a volta exige piscar de novo. Deixe IGUAL ao campo anterior pra nunca pedir piscada no meio do trabalho (recomendado — é como os perfis prontos funcionam).">
+              <span class="tun-term">Gap que zera a piscada (s)</span>
               <input type="number" id="tunRearm" min="1" max="300" step="1" />
             </label>
-            <label>
-              Carência pra piscar (s)
+            <label data-tip="Rosto voltou com a piscada zerada: quantos segundos você tem pra piscar antes de pausar com 'pisque para a câmera 👁'. Piscamos a cada 2–6s naturalmente — 12s cobre ~2 ciclos.">
+              <span class="tun-term">Carência pra piscar (s)</span>
               <input type="number" id="tunBlinkGrace" min="1" max="60" step="1" />
             </label>
           </div>
