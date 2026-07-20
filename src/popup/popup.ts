@@ -472,6 +472,9 @@ interface AgentStatus {
   connected: boolean
   ready: boolean
   nativeStatus: { status: string; lastError: string | null }
+  agentVersion: string | null
+  requiredAgentVersion: string
+  agentOutdated: boolean
 }
 
 function renderAgentStatus(status: AgentStatus | null, transportSetting: string): void {
@@ -491,6 +494,17 @@ function renderAgentStatus(status: AgentStatus | null, transportSetting: string)
     text = status.transport === 'native'
       ? status.ready ? 'Agente nativo rodando' : 'Agente nativo iniciando…'
       : 'Conectado via WebSocket (fallback)'
+    if (status.ready) {
+      if (status.agentOutdated) {
+        // Agente de pé mas velho: perfis/ajustes novos não fazem efeito nele.
+        dot = 'error'
+        const seen = status.agentVersion ? `v${status.agentVersion}` : 'sem versão (pré-0.7.0)'
+        text = `Agente desatualizado (${seen} — extensão espera ≥ v${status.requiredAgentVersion}). Rode o instalador abaixo e reinicie o Chrome.`
+        showInstall = true
+      } else if (status.agentVersion) {
+        text += ` · v${status.agentVersion}`
+      }
+    }
   } else {
     switch (status.nativeStatus.status) {
       case 'ok':
@@ -556,11 +570,23 @@ $<HTMLButtonElement>('test-agent-btn').addEventListener('click', async () => {
       error?: string
       transport?: string
       enrolled?: boolean
+      agentVersion?: string | null
+      agentOutdated?: boolean
+      requiredAgentVersion?: string
     }
     if (res?.error) throw new Error(res.error)
     const via = res.transport === 'native' ? 'nativo' : 'WebSocket'
     const face = res.enrolled ? 'rosto cadastrado' : 'nenhum rosto cadastrado'
-    setFeedback(`✓ Agente respondeu (${via}) — ${face}`, 'ok')
+    if (res.agentOutdated) {
+      const seen = res.agentVersion ? `v${res.agentVersion}` : 'pré-0.7.0'
+      setFeedback(
+        `⚠ Agente respondeu (${via}) mas está desatualizado (${seen}; esperado ≥ v${res.requiredAgentVersion}). Rode o instalador e reinicie o Chrome.`,
+        'error'
+      )
+    } else {
+      const ver = res.agentVersion ? ` · v${res.agentVersion}` : ''
+      setFeedback(`✓ Agente respondeu (${via})${ver} — ${face}`, 'ok')
+    }
   } catch (e) {
     setFeedback(e instanceof Error ? e.message : String(e), 'error')
   }

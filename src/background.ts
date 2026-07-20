@@ -6,8 +6,10 @@ import {
   getCustomVoices,
   getSettings,
   getTimer,
+  REQUIRED_AGENT_VERSION,
   resolveTuning,
   setAgentNativeStatus,
+  versionLessThan,
   setTimer,
   timerElapsedMs,
   type PauseReason,
@@ -80,11 +82,18 @@ async function handle(msg: Message): Promise<unknown> {
 /** Estado atual da conexão para o popup — NÃO inicia o agente. */
 async function getAgentStatus() {
   const native = await getAgentNativeStatus()
+  const connected = agentPort !== null || agentSocket?.readyState === WebSocket.OPEN
   return {
     transport: agentPort ? 'native' : agentSocket ? 'ws' : null,
-    connected: agentPort !== null || agentSocket?.readyState === WebSocket.OPEN,
+    connected,
     ready: agentReady,
-    nativeStatus: native
+    nativeStatus: native,
+    agentVersion,
+    requiredAgentVersion: REQUIRED_AGENT_VERSION,
+    // Só acusa desacordo com o agente de pé: sem conexão não há o que comparar.
+    // ready sem `version` = agente pré-0.7.0 → desatualizado.
+    agentOutdated:
+      agentReady && (agentVersion === null || versionLessThan(agentVersion, REQUIRED_AGENT_VERSION))
   }
 }
 
@@ -98,7 +107,10 @@ async function testAgent() {
     ok: true,
     transport: agentPort ? 'native' : 'ws',
     enrolled: result.enrolled === true,
-    available: result.available === true
+    available: result.available === true,
+    agentVersion,
+    agentOutdated: agentVersion === null || versionLessThan(agentVersion, REQUIRED_AGENT_VERSION),
+    requiredAgentVersion: REQUIRED_AGENT_VERSION
   }
 }
 
@@ -374,6 +386,7 @@ interface AgentMessage {
   error?: string
   enrolled?: boolean
   available?: boolean
+  version?: string
 }
 
 interface PendingRequest {
@@ -383,6 +396,8 @@ interface PendingRequest {
 
 const pendingAgentRequests = new Map<string, PendingRequest>()
 
+/** Versão reportada pelo agente conectado; null = desconectado ou pré-0.7.0. */
+let agentVersion: string | null = null
 /** true após 'ready'/primeira mensagem — cold start do processo nativo. */
 let agentReady = false
 let agentReadyWaiters: Array<(ok: boolean) => void> = []
@@ -428,6 +443,8 @@ function waitAgentReady(timeoutMs: number): Promise<void> {
 }
 
 function handleAgentMessage(msg: AgentMessage): void {
+  // Agente >=0.7.0 manda `version` no snapshot/ready; ausente = agente antigo.
+  if (typeof msg.version === 'string') agentVersion = msg.version
   markAgentReady()
   if (msg.type === 'presence' && typeof msg.present === 'boolean') {
     const faces = typeof msg.faces === 'number' ? msg.faces : 0
@@ -453,6 +470,7 @@ function handleAgentMessage(msg: AgentMessage): void {
 
 function handleAgentDisconnect(reason: string): void {
   // Agente fora do ar não pode manter o timer pausado por 'no-face'.
+  agentVersion = null
   facePresent = null
   agentRecognized = null
   agentLive = null
