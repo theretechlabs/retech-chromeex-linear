@@ -24,7 +24,7 @@ Extensão Chrome que cronometra seu trabalho nas issues do Linear e registra o t
 2. **▶** inicia o timer · **❚❚** encerra e registra o tempo na issue
 3. Pronto. O tempo aparece como comentário na Activity do ticket.
 
-> Para atualizar a extensão depois: baixe o zip novo, extraia por cima da mesma pasta e clique no ↻ da extensão em `chrome://extensions`.
+> Para atualizar depois, veja [🔄 Atualizando](#-atualizando-extensão-e-agente).
 
 > ⚠️ **Atualizando da v0.2 ou anterior?** Nesta versão o ID interno da extensão mudou — o Chrome trata como extensão nova e **as configurações resetam**. Recoloque a API key e reenvie a foto de referência (uma vez só).
 
@@ -91,6 +91,34 @@ Privacidade: tudo roda 100% local. Nenhuma imagem sai da máquina nem fica em di
 
 ---
 
+## 🔄 Atualizando (extensão e agente)
+
+São **duas peças** com update separado — as release notes sempre dizem, na seção "⚠️ Upgrade", qual delas mudou:
+
+**Extensão** (toda release):
+1. Baixe o `retech-linear-timer.zip` da [última release](https://github.com/theretechlabs/retech-chromeex-linear/releases/latest)
+2. Extraia **por cima da mesma pasta** de sempre
+3. `chrome://extensions` → clique no **↻** da Retech Linear Timer
+
+**Agente de câmera** (só quando a release tocar em `agent/`):
+
+```bash
+# macOS / Linux
+curl -fsSL https://raw.githubusercontent.com/theretechlabs/retech-chromeex-linear/main/scripts/install-agent.sh | bash
+
+# Windows (PowerShell)
+iwr -useb https://raw.githubusercontent.com/theretechlabs/retech-chromeex-linear/main/scripts/install-agent.ps1 | iex
+```
+
+Depois **reinicie o Chrome**. O instalador é idempotente — rodar de novo sem precisar não quebra nada.
+
+**Como saber se o seu agente está desatualizado** (v0.7.0+): a extensão compara sozinha a versão que o agente reporta com a mínima que ela espera.
+
+- **Popup → status do agente**: com tudo certo aparece `Agente nativo rodando · vX.Y.Z`; com agente antigo o status fica **vermelho** com `Agente desatualizado (vX — extensão espera ≥ vY)` e o comando do instalador já aparece embaixo.
+- **Popup → "Testar conexão"**: o resultado traz a versão (`✓ Agente respondeu (nativo) · v0.7.0 …`) ou o aviso `⚠ … desatualizado`.
+- A checagem só acontece com o agente **conectado** (timer rodando ou logo após o "Testar conexão") — o popup não liga a câmera só pra conferir versão.
+- Importante: a versão do agente **não precisa ser igual** à da extensão — releases que só mexem na extensão não exigem agente novo. O alerta só dispara quando o agente está **abaixo do mínimo** que a extensão instalada exige.
+
 ## 🔧 Problemas comuns
 
 | Sintoma | Causa / solução |
@@ -104,6 +132,7 @@ Privacidade: tudo roda 100% local. Nenhuma imagem sai da máquina nem fica em di
 | "Câmera não respondeu" ao dar play | Outro app está usando a câmera (Zoom/Meet?) ou é a primeira execução baixando modelos — feche o app/espere 1 min e tente de novo. |
 | Timer pausou e não volta | Veja o motivo no widget. Aba da issue fechada? Reabra. Agente caiu? O pause por câmera deixa de valer sozinho (idle e aba continuam). |
 | Popup mostra "Agente não instalado" | Rode o comando de instalação que o próprio popup mostra (botão copiar), **reinicie o Chrome** e clique em "Testar conexão". |
+| Popup mostra "Agente desatualizado (vX.Y.Z)" | A extensão detectou agente antigo (recursos novos não fazem efeito nele). Rode o instalador de novo e reinicie o Chrome — o popup passa a mostrar a versão do agente ao lado do status. |
 | Sem som no pause/play | Toggle "Tocar som" no popup. A voz toca nas transições automáticas **e** nas ações manuais (play/retomar/encerrar). |
 | Quero a minha própria voz nos avisos | Popup → "Vozes dos avisos (MP3)": suba um MP3 (máx 1 MB) pra Pausa, Retomada e/ou Rosto não reconhecido. Fica salvo só no seu Chrome; "Padrão" volta pro mp3 bundlado. |
 
